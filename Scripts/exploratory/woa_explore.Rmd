@@ -1,0 +1,113 @@
+---
+title: "Explore WOA data"
+author: "Jamie Afflerbach"
+date: "12/13/2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+library(sf)
+library(raster)
+
+#point to aquaculture folder on aurora
+dir_a <- c('Windows' = '//aurora.nceas.ucsb.edu/aquaculture',
+           'Linux'   = '/home/shares/aquaculture')[[ Sys.info()[['sysname']] ]]
+```
+
+Load the .csv of Phosphate downloaded to aurora. This data was downloaded from the [World Ocean Atlas 2013](https://www.nodc.noaa.gov/cgi-bin/OC5/woa13/woa13oxnu.pl). We need to skip the first row since it just contains a string.
+
+```{r}
+phos <- read_csv(file.path(dir_a, "input/WOA/woa13_all_p00mn01.csv"), skip = 1) %>%
+  rename(lat = `#COMMA SEPARATED LATITUDE`, 
+         long = `LONGITUDE`)
+```
+
+All columns 3 and on contain depth measurements. I'm limiting our range to just the top 50 m.
+
+```{r}
+phos_surf <- phos %>%
+  dplyr::select(1:13) %>%
+  gather(key = depth, value = phosphate, -lat, -long) %>%
+  mutate(depth_m = ifelse(depth == "AND VALUES AT DEPTHS (M):0", 0, depth)) %>%
+  dplyr::select(-depth)
+```
+
+Let's rasterize phosphate values at 0 m depth (surface)
+
+```{r}
+zero <- phos_surf %>%
+  filter(depth_m == 0)
+
+# in your case (no need to compute rows/colums):
+x <- raster(xmn=-180, xmx=180, ymn=-90, ymx=90, res=1, crs="+proj=longlat +datum=WGS84")
+
+phos_ras <- rasterize(zero[, c('long', 'lat')], x, zero[, 'phosphate'], fun=mean)
+plot(phos_ras, main = "Phosphate levels (µmol/l) at 0 m (surface)")
+```
+
+Trying the same thing with 5 m
+
+```{r}
+five <- phos_surf %>%
+  filter(depth_m == 5)
+
+phos_ras_5 <- rasterize(five[, c('long', 'lat')], x, five[, 'phosphate'], fun=mean)
+plot(phos_ras_5, main = "Phosphate levels (µmol/l) at 5 m depth")
+```
+
+## Nitrogen
+
+Load the .csv of nitrate downloaded to aurora. This data was downloaded from the [World Ocean Atlas 2013](https://www.nodc.noaa.gov/cgi-bin/OC5/woa13/woa13oxnu.pl). We need to skip the first row since it just contains a string.
+
+```{r}
+nit <- read_csv(file.path(dir_a, "input/WOA/woa13_all_n00mn01.csv"), skip = 1) %>%
+  rename(lat = `#COMMA SEPARATED LATITUDE`, 
+         long = `LONGITUDE`)
+```
+
+All columns 3 and on contain depth measurements. I'm limiting our range to just the top 50 m.
+
+```{r}
+nit_surf <- nit %>%
+  dplyr::select(1:13) %>%
+  gather(key = depth, value = nitrate, -lat, -long) %>%
+  mutate(depth_m = ifelse(depth == "AND VALUES AT DEPTHS (M):0", 0, depth)) %>%
+  dplyr::select(-depth)
+```
+
+```{r}
+n_0 <- nit_surf %>%
+  filter(depth_m == 0)
+
+nit_ras_0 <- rasterize(n_0[, c('long', 'lat')], x, n_0[, 'nitrate'], fun=mean)
+
+plot(nit_ras_0, main = "Nitrate levels (µmol/l) at 0 m depth")
+```
+
+Nitrate at 5 m
+
+```{r}
+n_5 <- nit_surf %>%
+  filter(depth_m == 5)
+
+nit_ras_5 <- rasterize(n_5[, c('long', 'lat')], x, n_5[, 'nitrate'], fun=mean)
+
+plot(nit_ras_5, main = "Nitrate levels (µmol/l) at 5 m depth")
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
