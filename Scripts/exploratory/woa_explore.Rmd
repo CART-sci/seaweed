@@ -20,7 +20,7 @@ dir_a <- c('Windows' = '//aurora.nceas.ucsb.edu/aquaculture',
 Load the .csv of Phosphate downloaded to aurora. This data was downloaded from the [World Ocean Atlas 2013](https://www.nodc.noaa.gov/cgi-bin/OC5/woa13/woa13oxnu.pl). We need to skip the first row since it just contains a string.
 
 ```{r}
-phos <- read_csv(file.path(dir_a, "input/WOA/woa13_all_p00mn01.csv"), skip = 1) %>%
+phos <- read_csv(file.path(dir_a, "input/WOA/woa13_all_p00an01.csv"), skip = 1) %>%
   rename(lat = `#COMMA SEPARATED LATITUDE`, 
          long = `LONGITUDE`)
 ```
@@ -63,7 +63,7 @@ plot(phos_ras_5, main = "Phosphate levels (µmol/l) at 5 m depth")
 Load the .csv of nitrate downloaded to aurora. This data was downloaded from the [World Ocean Atlas 2013](https://www.nodc.noaa.gov/cgi-bin/OC5/woa13/woa13oxnu.pl). We need to skip the first row since it just contains a string.
 
 ```{r}
-nit <- read_csv(file.path(dir_a, "input/WOA/woa13_all_n00mn01.csv"), skip = 1) %>%
+nit <- read_csv(file.path(dir_a, "input/WOA/woa13_all_n00an01.csv"), skip = 1) %>%
   rename(lat = `#COMMA SEPARATED LATITUDE`, 
          long = `LONGITUDE`)
 ```
