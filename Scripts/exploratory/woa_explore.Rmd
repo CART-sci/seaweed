@@ -15,6 +15,13 @@ library(raster)
 #point to aquaculture folder on aurora
 dir_a <- c('Windows' = '//aurora.nceas.ucsb.edu/aquaculture',
            'Linux'   = '/home/shares/aquaculture')[[ Sys.info()[['sysname']] ]]
+
+library(RColorBrewer)
+cols      = colorRampPalette(brewer.pal(9, 'Spectral'))(255) # rainbow color scheme
+
+library(rworldmap)
+#get coarse resolution world from rworldmap
+world <- getMap()  
 ```
 
 Load the .csv of Phosphate downloaded to aurora. This data was downloaded from the [World Ocean Atlas 2013](https://www.nodc.noaa.gov/cgi-bin/OC5/woa13/woa13oxnu.pl). We need to skip the first row since it just contains a string.
@@ -48,14 +55,27 @@ phos_ras <- rasterize(zero[, c('long', 'lat')], x, zero[, 'phosphate'], fun=mean
 plot(phos_ras, main = "Phosphate levels (µmol/l) at 0 m (surface)")
 ```
 
-Trying the same thing with 5 m
-
+Trying the same thing from 0 - 30
 ```{r}
-five <- phos_surf %>%
-  filter(depth_m == 5)
+depth_raster <- function(depth){
+  
+  d <- phos_surf %>% filter(depth_m == depth)
+  p <- rasterize(d[, c('long', 'lat')], x, d[, 'phosphate'], fun=mean)
+  
+  return(p)
+}
+ 
+depths <- seq(0, 10, by = 5)
 
-phos_ras_5 <- rasterize(five[, c('long', 'lat')], x, five[, 'phosphate'], fun=mean)
-plot(phos_ras_5, main = "Phosphate levels (µmol/l) at 5 m depth")
+phos <- map(depths, depth_raster) %>% 
+  stack() 
+
+min <- range(phos)[[1]]
+max <- range(phos)[[2]]
+
+diff <- max-min
+plot(diff, main = "Max possible differences in Phosphate between the surface (0 m) and 10 m")
+plot(phos)
 ```
 
 ## Nitrogen
@@ -79,33 +99,133 @@ nit_surf <- nit %>%
 ```
 
 ```{r}
-n_0 <- nit_surf %>%
-  filter(depth_m == 0)
+depth_raster_n <- function(depth){
+  
+  d <- nit_surf %>% filter(depth_m == depth)
+  p <- rasterize(d[, c('long', 'lat')], x, d[, 'nitrate'], fun=mean)
+  
+  return(p)
+}
+ 
+depths <- seq(0, 10, by = 5)
 
-nit_ras_0 <- rasterize(n_0[, c('long', 'lat')], x, n_0[, 'nitrate'], fun=mean)
+nitrate <- map(depths, depth_raster_n) %>% 
+  stack() 
 
-plot(nit_ras_0, main = "Nitrate levels (µmol/l) at 0 m depth")
+min <- range(nitrate)[[1]]
+max <- range(nitrate)[[2]]
+
+diff <- max-min
+plot(diff, main = "Max possible differences in Nitrate between the surface (0 m) and 10 m" )
+plot(nitrate)
 ```
 
-Nitrate at 5 m
+
+
+
+Range of N:P ratios for seaweed is 10:1 to 80:1 with optimal 30:1. Due to data resolution, using the range of 10 - 80 still leaves out key areas where we know marine plants/seaweed are growing naturally. Specifically the west coast of N and S America. Since the data resolution is so coarse, we increased the range slightly until we were capturing those locations.
+
 
 ```{r}
-n_5 <- nit_surf %>%
-  filter(depth_m == 5)
+#average values from 0 - 10 m
 
-nit_ras_5 <- rasterize(n_5[, c('long', 'lat')], x, n_5[, 'nitrate'], fun=mean)
+avg_p <- mean(phos)
+avg_n <- mean(nitrate)
 
-plot(nit_ras_5, main = "Nitrate levels (µmol/l) at 5 m depth")
+n_to_p <- avg_n/avg_p
+
+plot(n_to_p, col = cols)
+hist(n_to_p)
+
+```
+
+select between 4 and 80
+
+```{r}
+n_to_p[n_to_p < 4] <- NA
+n_to_p[n_to_p > 80] <- NA
+
+plot(n_to_p, col = cols)
+
+```
+
+Now we want to cut out all high seas areas and only keep feasible areas in EEZs.
+
+```{r}
+eezs <- read_sf(file.path(dir_a, "input/world_eezs/regions_2017_update.shp"), quiet = T) %>%
+  filter(rgn_type == "eez",
+         rgn_name != "Antarctica") %>%
+  st_transform(crs = 4326) %>%
+  as('Spatial')
+
+n_to_p_eez <- mask(n_to_p, eezs)
+
 ```
 
 
+Get countries where production is currently happening
+
+```{r}
+
+fao <- read_csv("~/github/seaweed/Data/FAO_AquaticPlants_1950-2016.csv") %>%
+  filter(Environment == "Marine") %>%
+  gather(key = year, value = tons, -`Land Area`, -`Ocean Area`, -Environment, -Species, -`Scientific name`) %>%
+  filter(!str_detect(year, "S_"),
+         year > 2010,
+         tons > 0)
+
+ctrys <- unique(fao$`Land Area`)
+
+worldmap <- rnaturalearth::ne_download(scale = 110,
+                                       type = "countries",
+                                       category = "cultural",
+                                       destdir = tempdir(),
+                                       load = TRUE,
+                                       returnclass = "sf")
+
+#add aquaculture countries
+
+worldmap_aq <- worldmap %>%
+  select(NAME) %>%
+  mutate(aq_production = ifelse(NAME %in% ctrys, 1, 0))
+
+sum(worldmap_aq$aq_production)
+```
+
+Looks like we only have 26 of the 37 countries identified. Probably due to name mismatches. Let's see what those are
+
+```{r}
+
+c <- worldmap_aq %>% filter(aq_production == 1) %>% .$NAME
+
+setdiff(ctrys, c)
+```
+
+```{r}
+aq_map <- worldmap_aq %>%
+  mutate(aq_production = ifelse(NAME %in% c("Russia", "South Korea", "North Korea", "Vietnam", "Tanzania", "Taiwan", "Solomon Is."), 1, aq_production)) %>%
+  as('Spatial')
+
+#this world map doesn't have Cook Islands, Kiribati, Saint Lucia or Zanzibar
+```
+
+Plot N:P plus countries producing marine seaweed
+```{r}
+
+land_cols <- c("beige", "darkolivegreen4")
+
+tmap_mode("plot")
+
+tm_shape(n_to_p_eez) +
+  tm_raster(palette = "-RdYlBu", style = "cont", auto.palette.mapping=FALSE, title = "N:P") +
+  tm_shape(aq_map) +
+  tm_polygons("aq_production", 
+              legend.title = "Countries currently farming seaweeds", 
+              palette = land_cols, alpha = 0.7,  legend.show = F) +
+tm_legend(outside = TRUE)
 
 
-
-
-
-
-
+```
 
 
 
