@@ -310,6 +310,8 @@ st_area(x2) #259672435847 [m^2]
 x2 <- x2 %>% as('Spatial')
 ```
 
+Quick stat - the EEZ off the US west coast (CA -> WA) is 825,585.4 km2. So the area required for scenario 2 is just `r (25943.14548/825585.4)*100`%
+
 ```{r poly_3}
 #scenario 3 - 6113276
 x3 <- cbind(c(-150, -118, -118, -150, -150),

@@ -9,7 +9,7 @@
 <meta name="generator" content="pandoc" />
 
 
-<meta name="author" content="Compiled on Wed Jan 9 13:45:52 2019 by afflerbach" />
+<meta name="author" content="Compiled on Wed Jan 9 14:18:55 2019 by afflerbach" />
 
 
 <title>Create global map of available areas for farmed seaweed</title>
@@ -352,7 +352,7 @@ div.tocify {
 
 
 <h1 class="title toc-ignore">Create global map of available areas for farmed seaweed</h1>
-<h4 class="author"><em><em>Compiled on Wed Jan 9 13:45:52 2019 by afflerbach</em></em></h4>
+<h4 class="author"><em><em>Compiled on Wed Jan 9 14:18:55 2019 by afflerbach</em></em></h4>
 
 </div>
 
@@ -664,7 +664,7 @@ worldmap &lt;-<span class="st"> </span>rnaturalearth<span class="op">::</span><s
                                        <span class="dt">load =</span> <span class="ot">TRUE</span>,
                                        <span class="dt">returnclass =</span> <span class="st">&quot;sf&quot;</span>)</code></pre></div>
 <pre><code>## OGR data source with driver: ESRI Shapefile 
-## Source: &quot;/tmp/Rtmpk56jNl&quot;, layer: &quot;ne_110m_admin_0_countries&quot;
+## Source: &quot;/tmp/RtmpxjV4tO&quot;, layer: &quot;ne_110m_admin_0_countries&quot;
 ## with 177 features
 ## It has 94 fields
 ## Integer64 fields read as strings:  POP_EST NE_ID</code></pre>
@@ -731,6 +731,7 @@ x2 &lt;-<span class="st"> </span><span class="kw">st_sf</span>(<span class="kw">
 <span class="kw">st_area</span>(x2) <span class="co">#259672435847 [m^2]</span></code></pre></div>
 <pre><code>## 259672435847 [m^2]</code></pre>
 <div class="sourceCode"><pre class="sourceCode r"><code class="sourceCode r">x2 &lt;-<span class="st"> </span>x2 <span class="op">%&gt;%</span><span class="st"> </span><span class="kw">as</span>(<span class="st">'Spatial'</span>)</code></pre></div>
+<p>Quick stat - the EEZ off the US west coast (CA -&gt; WA) is 825,585.4 km2. So the area required for scenario 2 is just 3.1423939%</p>
 <div class="sourceCode"><pre class="sourceCode r"><code class="sourceCode r"><span class="co">#scenario 3 - 6113276</span>
 x3 &lt;-<span class="st"> </span><span class="kw">cbind</span>(<span class="kw">c</span>(<span class="op">-</span><span class="dv">150</span>, <span class="dv">-118</span>, <span class="dv">-118</span>, <span class="dv">-150</span>, <span class="dv">-150</span>),
            <span class="kw">c</span>(<span class="op">-</span><span class="dv">58</span>, <span class="dv">-58</span>, <span class="fl">-35.1</span>, <span class="fl">-35.1</span>, <span class="dv">-58</span>))
