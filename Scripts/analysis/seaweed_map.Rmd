@@ -1,0 +1,363 @@
+---
+title: "Create global map of available areas for farmed seaweed"
+author: "*Compiled on `r date()` by `r Sys.info()['user']`*"
+output: 
+  html_document:
+    code_folding: hide
+    toc: true
+    toc_depth: 3
+    toc_float: yes
+    number_sections: false
+    theme: cerulean
+    highlight: haddock
+  pdf_document:
+    toc: true
+---
+
+This script creates a global map showing:
+
+1. Areas of N:P suitable for seaweed growth  
+2. Native ranges of wild seaweeds  
+3. Countries that are currently farming seaweed  
+4. How much area is needed to farm seaweed under three offset scenarios
+
+## Summary
+
+We used oceanic N:P to identify feasible seaweed growing areas. Spatial data from the World Ocean Atlas (2013) for phosphate and nitrate were downloaded and used to calculate the N:P ratio in the top 10 meters of surface water. Cells with N:P values outside the range of 4:1 to 80:1 were removed. Harrison & Hurd (2001) state that a ratio of 30:1 is ideal for optimal seaweed growth, but the range extends from 10:1 to 80:1 (Atkinson 1983). Areas with known native seaweeds (e.g. Pacific coast of N. America) were not captured when the N:P layer used a range minimum of 10:1. This is likely due to coarse spatial data resolution (1 degree cells) and not reflective of where seaweeds grow. The range was expanded in order to capture all areas that have been identified as having native seaweeds (Teagle et al. 2017). All cells outside of delineated EEZs were also removed to limit feasible areas to those within country's waters. Native seaweed ranges were drawn manually based on the map in Teagle et al. (2017) using the R packages `mapview` and `mapedit`. FAO data on global production of aquatic plants was used to identify countries that have produced farmed marine plants within the most recently available 5 years of data (2012-2016). Polygons to identify areas required to farm seaweed under the three offset scenarios were created manually using the `sf` (Simple Features) package.
+
+For more details see data and code at https://github.com/CART-sci/seaweed.
+
+## Setup
+
+```{r setup, message = F, warning = F}
+knitr::opts_chunk$set(echo = TRUE, message = F, warning = F)
+
+library(tidyverse)
+library(sf)
+library(raster)
+library(tmap)
+library(RColorBrewer)
+
+#point to aquaculture folder on aurora
+dir_a <- c('Windows' = '//aurora.nceas.ucsb.edu/aquaculture',
+           'Linux'   = '/home/shares/aquaculture')[[ Sys.info()[['sysname']] ]]
+
+#set rainbow color scheme
+cols      = colorRampPalette(brewer.pal(9, 'Spectral'))(255) # rainbow color scheme
+```
+
+### Phosphate data
+
+Load the .csv of Phosphate downloaded to aurora. This data was downloaded from the [World Ocean Atlas 2013](https://www.nodc.noaa.gov/cgi-bin/OC5/woa13/woa13oxnu.pl). We need to skip the first row since it just contains a string.
+
+```{r}
+phos <- read_csv(file.path(dir_a, "input/WOA/woa13_all_p00an01.csv"), skip = 1) %>%
+  rename(lat = `#COMMA SEPARATED LATITUDE`, 
+         long = `LONGITUDE`)
+```
+
+All columns 3 and on contain depth measurements. I'm limiting our range to just the top 20 m.
+
+```{r}
+phos_surf <- phos %>%
+  dplyr::select(1:7) %>%
+  gather(key = depth, value = phosphate, -lat, -long) %>%
+  mutate(depth_m = ifelse(depth == "AND VALUES AT DEPTHS (M):0", 0, depth)) %>%
+  dplyr::select(-depth)
+```
+
+Let's rasterize phosphate values at 0 m depth (surface)
+
+```{r}
+x <- raster(xmn=-180, xmx=180, ymn=-90, ymx=90, res=1, crs="+proj=longlat +datum=WGS84")
+
+depth_raster <- function(depth){
+  
+  d <- phos_surf %>% filter(depth_m == depth)
+  p <- rasterize(d[, c('long', 'lat')], x, d[, 'phosphate'], fun=mean)
+  
+  return(p)
+}
+ 
+depths <- seq(0, 10, by = 5)
+
+phos <- map(depths, depth_raster) %>% 
+  stack() 
+
+plot(phos)
+```
+
+### Nitrogen data
+
+Load the .csv of nitrate downloaded to aurora. This data was downloaded from the [World Ocean Atlas 2013](https://www.nodc.noaa.gov/cgi-bin/OC5/woa13/woa13oxnu.pl). We need to skip the first row since it just contains a string.
+
+```{r}
+nit <- read_csv(file.path(dir_a, "input/WOA/woa13_all_n00an01.csv"), skip = 1) %>%
+  rename(lat = `#COMMA SEPARATED LATITUDE`, 
+         long = `LONGITUDE`)
+```
+
+All columns 3 and on contain depth measurements. I'm limiting our range to just the top 20 m.
+
+```{r}
+nit_surf <- nit %>%
+  dplyr::select(1:7) %>%
+  gather(key = depth, value = nitrate, -lat, -long) %>%
+  mutate(depth_m = ifelse(depth == "AND VALUES AT DEPTHS (M):0", 0, depth)) %>%
+  dplyr::select(-depth)
+```
+
+```{r}
+#same function as applied to phosphate above
+depth_raster_n <- function(depth){
+  
+  d <- nit_surf %>% filter(depth_m == depth)
+  p <- rasterize(d[, c('long', 'lat')], x, d[, 'nitrate'], fun=mean)
+  
+  return(p)
+}
+ 
+depths <- seq(0, 10, by = 5)
+
+#get rasters for 0, 5 and 10 m depths and stack them together
+nitrate <- map(depths, depth_raster_n) %>% 
+  stack() 
+
+plot(nitrate)
+```
+
+## Apply N:P constraints
+
+Range of N:P ratios for seaweed is 10:1 to 80:1 with optimal 30:1. Due to data resolution, using the range of 10 - 80 still leaves out key areas where we know marine plants/seaweed are growing naturally. Specifically the west coast of N and S America. Since the data resolution is so coarse, we increased the range slightly (4:1 - 80:1) to make sure we were capturing those locations.
+
+
+```{r}
+#get average values from 0 - 10 m
+avg_p <- mean(phos)
+avg_n <- mean(nitrate)
+
+#get the ratio (divide N by P)
+n_to_p <- avg_n/avg_p
+
+#plot
+plot(n_to_p, col = cols)
+```
+
+Select N:P ratio range between 4 and 80
+
+```{r}
+n_to_p[n_to_p < 4] <- NA
+n_to_p[n_to_p > 80] <- NA
+
+plot(n_to_p, col = cols)
+```
+
+Now we want to cut out all high seas areas and only keep feasible areas in EEZs.
+
+```{r}
+#reading in the OHI EEZ shapefile from aurora and filtering just for EEZs while removing Antarctica
+eezs <- read_sf(file.path(dir_a, "input/world_eezs/regions_2017_update.shp"), quiet = T) %>%
+  filter(rgn_type == "eez",
+         rgn_name != "Antarctica") %>%
+  st_transform(crs = 4326) %>%
+  as('Spatial')
+
+#masking the N:P raster with the eezs shapefile
+n_to_p_eez <- mask(n_to_p, eezs)
+```
+
+
+Get total area of `n_to_p_eez`
+```{r}
+#get area of all cells
+a <-area(n_to_p_eez)
+
+#select just those cells in n_to_p_eez
+b <- mask(a, n_to_p_eez)
+```
+
+Total available area is `r cellStats(b, 'sum')` km2.
+
+Next I want to get a list of all countries where there is feasible area. I can use `raster::extract()` to do this :
+```{r}
+#this gives us a list of 220 objects representing each country. We only want the objects in the list that have values.
+c <- raster::extract(n_to_p_eez, eezs, df = TRUE)
+
+t <- c %>%
+  group_by(ID) %>%
+  summarize(feas_area = sum(layer, na.rm=T)) %>%
+  mutate(country = eezs@data$rgn_name) %>%
+  filter(feas_area > 0) 
+
+t$country
+
+#now we have the countries that have at least one feasible cell
+```
+
+## Countries farming seaweed
+
+We also want to map the countries that are currently farming seafood. We can use the FAO data to tell us who has farmed more than 0 tons of **marine plants** in the past 5 years (2012-2016). There are some country name differences between the FAO dataset and the worldmap we are going to use so we fix those here as well.
+
+```{r}
+#read in fao mariculture data, filter just for marine plants and years 2012-2016.
+fao <- read_csv("~/github/seaweed/Data/FAO_AquaticPlants_1950-2016.csv") %>%
+  filter(Environment == "Marine") %>%
+  gather(key = year, value = tons, -`Land Area`, -`Ocean Area`, -Environment, -Species, -`Scientific name`) %>%
+  filter(!str_detect(year, "S_"),
+         year > 2011,
+         tons > 0) %>%
+  group_by(`Land Area`) %>%
+  summarize(production_tons = sum(as.numeric(tons), na.rm=T)) %>%
+  mutate(country = 
+           case_when(
+             `Land Area` == "Korea, Republic of" ~ "South Korea",
+             `Land Area` == "Viet Nam" ~ "Vietnam",
+             `Land Area` == "Korea, Dem. People's Rep" ~ "North Korea",
+             `Land Area` == "Russian Federation" ~ "Russia",
+             `Land Area` == "Solomon Islands" ~ "Solomon Is.",
+             `Land Area` == "Tanzania, United Rep. of" ~ "Tanzania",
+             `Land Area` == "Taiwan Province of China" ~ "Taiwan",
+             TRUE ~ `Land Area`
+           ))
+
+#get the unique countries in FAO data that meet our criteria  
+ctrys <- unique(fao$country)
+
+#grab the worldmap from rnaturalearth
+worldmap <- rnaturalearth::ne_download(scale = 110,
+                                       type = "countries",
+                                       category = "cultural",
+                                       destdir = tempdir(),
+                                       load = TRUE,
+                                       returnclass = "sf")
+
+#add column identifying countries farming seaweeds
+worldmap_aq <- worldmap %>%
+  dplyr::select(NAME) %>%
+  mutate(aq_production = ifelse(NAME %in% ctrys, 1, 0))
+```
+
+Creating another dataframe that adds the FAO data so that we can map total amount of farmed seaweed by country if we want to.
+```{r}
+aq_map <- worldmap_aq %>%
+  left_join(fao, by = c("NAME" = "country")) %>%
+  as('Spatial')
+```
+
+## Create seaweed native ranges
+
+In order to add lines identifying areas of the world where native seaweeds grow we used `mapedit` and `mapview`. There were no available shapefiles for us to use so we created our own based off the map [here](https://www.sciencedirect.com/science/article/pii/S0022098117300540#bb1240) (Teagle et al. 2017). I drew lines using `mapedit` to mimic the placement of lines in Teagle et al. (2017) and saved as a shapefile (`seaweed_range_lines.shp`).
+
+
+```{r seaweed_lines}
+#seaweed_lines <- editMap(leaflet() %>% addTiles())
+#sw_lines <- seaweed_lines$finished
+#write_sf(sw_lines, "../../Data/seaweed_range_lines", driver = "ESRI Shapefile")
+
+sw_lines <- read_sf("../../Data/seaweed_range_lines/seaweed_range_lines.shp")
+```
+
+Plot N:P raster, plus countries producing marine seaweed, and the marine seaweed lines
+```{r}
+land_cols <- c("beige", "darkolivegreen4")
+
+library(tmap)
+tmap_mode("plot")
+
+tm_shape(n_to_p_eez) +
+  tm_raster(palette = "-RdYlBu", style = "cont", auto.palette.mapping=FALSE, title = "N:P") +
+  tm_shape(aq_map) +
+  tm_polygons("aq_production", 
+              legend.title = "Countries currently farming seaweeds", 
+              palette = land_cols, alpha = 0.7,  legend.show = F) +
+  tm_shape(sw_lines) +
+  tm_lines(col = "darkred", lwd = 2.3, lty = "solid") +
+  tm_legend(outside = TRUE) +
+  tm_add_legend(type = "fill", labels = "Countries currently farming seaweed", col = "darkolivegreen4", alpha = 0.7, border.col = "darkgray") +
+  tm_add_legend(type = "line", labels = "Native range for wild seaweeds", col = "darkred", lwd = 2.3) 
+```
+
+#Area polygons
+
+We need to include three different polygons that show the area that needs to be dedicated to farming seaweed to offset CO2 in each scenario.
+
+1. sequester GFG from global fish & crustacean aquaculture (371 km2)
+2. sequester GHG from all CA agricultural emissions (25,943.14548 km2) 
+3. sequester GHG from global livestock agriculture (6,113,276 km2) 
+
+I manually created these polygons by playing with the locations of them and checking the area with `sf::st_area()`.
+```{r poly_1}
+#scenario 1 - 371 km2. Create matrix of lat/long locations and then check area of polygon
+x1 <- cbind(c(-134, -133.7, -133.7, -134, -134),
+           c(-46.455, -46.455, -46.6, -46.6, -46.455))
+
+x1 <- st_sf(st_sfc(st_polygon(list(x1))))
+st_crs(x1) <- st_crs(n_to_p_eez) #assign CRS to be the same as n_to_p_eez
+st_area(x1) #371000084 [m^2]
+
+x1 <- x1 %>% as('Spatial')
+```
+
+```{r poly_2}
+#scenario 2 - 25943.14548
+x2 <- cbind(c(-137, -131, -131, -137, -137),
+           c(-49.08, -49.08, -44, -44, -49.08))
+
+x2 <- st_sf(st_sfc(st_polygon(list(x2))))
+st_crs(x2) <- st_crs(n_to_p_eez) #assign CRS to grid
+st_area(x2) #259672435847 [m^2]
+
+x2 <- x2 %>% as('Spatial')
+```
+
+```{r poly_3}
+#scenario 3 - 6113276
+x3 <- cbind(c(-150, -118, -118, -150, -150),
+           c(-58, -58, -35.1, -35.1, -58))
+
+x3 <- st_sf(st_sfc(st_polygon(list(x3))))
+st_crs(x3) <- st_crs(n_to_p_eez) #assign CRS to grid
+st_area(x3)
+
+#close enough!
+x3 <- x3 %>% as('Spatial')
+```
+
+
+## Final Map
+
+Create the final map including all layers!
+
+```{r}
+#blue color scheme for N:P ratio
+b <- c("#08306B",  "#4292C6", "#6BAED6", "#9ECAE1", "#C6DBEF", "#DEEBF7", "#F7FBFF")
+
+big_map <- tm_shape(n_to_p_eez) +
+  tm_raster(palette = b, style = "cont", title = "N:P") +
+  tm_shape(aq_map) +
+  tm_polygons("aq_production", 
+              legend.title = "Countries currently farming seaweeds", legend.show = F,
+              palette = land_cols, lwd = 0.5, colorNA = "ivory", alpha = 0.7) +
+  tm_shape(sw_lines) +
+  tm_lines(col = "darkred", lwd = 2, lty = "solid") +
+  tm_shape(x3) +
+  tm_polygons(col = "gray60") +
+  tm_shape(x2) + 
+  tm_polygons(col = "gray90") +
+  tm_shape(x1) +
+  tm_polygons(col = "black") +
+  tm_legend(outside = TRUE) +
+  tm_add_legend(type = "fill", labels = "Countries farming seaweed", col = "darkolivegreen4", alpha = 0.7, border.col = "darkgray") +
+  tm_add_legend(type = "line", labels = "Native range for wild seaweeds", col = "darkred", lwd = 2) +
+  tm_add_legend(type = "symbol", shape = 15, labels = "Finfish & Crustacean Aquaculture", col = "black", size = 0.1, title = "CO2eq offset scenarios") +
+  tm_add_legend(type = "symbol", shape = 22, labels = "California agriculture", col = "gray90", size = 0.35, border.col = "gray30", border.lwd = 0.7) +
+  tm_add_legend(type = "fill", labels = "Global agriculture", col = "gray60", size = .5, border.col = "gray30") +
+  tm_layout(legend.title.size = 0.8, legend.title.fontface = "bold")
+```
+
+Save
+
+```{r}
+tmap_save(big_map, filename = "../../Figs/map.png", width = 6, height = 2.5, units = "in")
+```
+
