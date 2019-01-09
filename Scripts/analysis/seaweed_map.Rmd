@@ -37,6 +37,9 @@ library(sf)
 library(raster)
 library(tmap)
 library(RColorBrewer)
+library(mapview)
+library(mapedit)
+library(leaflet)
 
 #point to aquaculture folder on aurora
 dir_a <- c('Windows' = '//aurora.nceas.ucsb.edu/aquaculture',
@@ -254,7 +257,7 @@ In order to add lines identifying areas of the world where native seaweeds grow 
 #sw_lines <- seaweed_lines$finished
 #write_sf(sw_lines, "../../Data/seaweed_range_lines", driver = "ESRI Shapefile")
 
-sw_lines <- read_sf("../../Data/seaweed_range_lines/seaweed_range_lines.shp")
+sw_lines <- read_sf("../../Data/seaweed_range_lines.shp")
 ```
 
 Plot N:P raster, plus countries producing marine seaweed, and the marine seaweed lines
