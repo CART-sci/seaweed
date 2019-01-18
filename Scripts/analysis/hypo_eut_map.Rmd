@@ -1,0 +1,92 @@
+---
+title: "Hypoxic and Eutrophic map"
+author: "Jamie Afflerbach"
+date: "1/18/2019"
+output: html_document
+---
+
+
+## Setup
+
+```{r setup, message = F, warning = F}
+knitr::opts_chunk$set(echo = TRUE, message = F, warning = F)
+
+library(tidyverse)
+library(sf)
+library(raster)
+library(tmap)
+library(RColorBrewer)
+library(readxl)
+
+#point to aquaculture folder on aurora
+dir_a <- c('Windows' = '//aurora.nceas.ucsb.edu/aquaculture',
+           'Darwin'  = '/Volumes/aquaculture',    ### connect (cmd-K) to smb://mazu/ohi
+           'Linux'   = '/home/shares/aquaculture')[[ Sys.info()[['sysname']] ]]
+
+#set rainbow color scheme
+cols      = colorRampPalette(brewer.pal(9, 'Spectral'))(255) # rainbow color scheme
+```
+
+Read in hypoxic eutrophic site
+
+```{r}
+sites <- read_excel("~/github/seaweed/Data/wri_eutrophic_hypoxic_dataset_2011-03.xls")
+
+#filter for decade 2000
+sites_2000 <- sites %>% 
+  filter(Decade == 2000) %>%
+  mutate(category = ifelse(Classification == "eutrophic", "Eutrophic", Classification)) %>%
+  filter(category != "Improved")
+```
+
+Create `sf` object
+
+```{r}
+sites_sf <- st_as_sf(sites_2000,coords = c("Long", "Lat"), crs = 4326) %>%
+  st_transform(crs = "+proj=moll +lon_0=0 +x_0=0 +y_0=0 +ellps=WGS84 +units=m +no_defs")
+```
+
+Load OA map
+
+```{r}
+oa <- raster(file.path(dir_a, "ARF/oa/global_arag_avg_moll_2016.tif"))
+```
+
+Get world map
+
+```{r}
+#grab the worldmap from rnaturalearth
+worldmap <- rnaturalearth::ne_download(scale = 110,
+                                       type = "countries",
+                                       category = "cultural",
+                                       destdir = tempdir(),
+                                       load = TRUE,
+                                       returnclass = "sf")
+```
+
+
+```{r}
+hyp_eut_map <- 
+  tm_shape(oa) +
+  tm_raster(palette = "RdYlBu", style = "cont", title = "Arag.") +
+  tm_shape(worldmap) +
+  tm_polygons(col = "ivory", lwd = 0.5, alpha = 0.7) +
+  tm_shape(sites_sf) +
+  tm_symbols(col = "category", border.col = "black", border.lwd = 0.5, size = 0.2, title.col = " ", palette = "PRGn") +
+  tm_legend(outside = TRUE) +
+  tm_layout(legend.title.size = 1, legend.title.fontface = "bold", legend.text.size = 1, frame = F) 
+
+
+tmap_save(hyp_eut_map, filename = "../../Figs/hyp_eut_map.png", width = 6, height = 2.5, units = "in")
+```
+
+
+
+
+
+
+
+
+
+
+
