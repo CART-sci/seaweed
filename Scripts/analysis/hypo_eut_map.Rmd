@@ -33,10 +33,9 @@ Read in hypoxic eutrophic site
 sites <- read_excel("~/github/seaweed/Data/wri_eutrophic_hypoxic_dataset_2011-03.xls")
 
 #filter for decade 2000
-sites_2000 <- sites %>% 
-  filter(Decade == 2000) %>%
+sites_2000 <- sites %>%
   mutate(category = ifelse(Classification == "eutrophic", "Eutrophic", Classification)) %>%
-  filter(category != "Improved")
+  filter(!category %in% c("Improved", "improved"))
 ```
 
 Create `sf` object
@@ -50,7 +49,11 @@ Load OA map
 
 ```{r}
 oa <- raster(file.path(dir_a, "ARF/oa/global_arag_avg_moll_2016.tif"))
+oa[oa>3.05]<-NA #using 3.05 to get contour lines for Aragonite values at 3
+
+oa_wgs <- projectRaster(oa, crs = "+proj=longlat +datum=WGS84 +no_defs")
 ```
+
 
 Get world map
 
@@ -66,13 +69,20 @@ worldmap <- rnaturalearth::ne_download(scale = 110,
 
 
 ```{r}
+#get contour lines
+levels <- c(1,2,3)
+oa_cont <- rasterToContour(oa, levels = levels)
+
+#make map
 hyp_eut_map <- 
   tm_shape(oa) +
   tm_raster(palette = "RdYlBu", style = "cont", title = "Arag.") +
+  tm_shape(oa_cont) +
+  tm_lines() +
   tm_shape(worldmap) +
   tm_polygons(col = "ivory", lwd = 0.5, alpha = 0.7) +
   tm_shape(sites_sf) +
-  tm_symbols(col = "category", border.col = "black", border.lwd = 0.5, size = 0.2, title.col = " ", palette = "PRGn") +
+  tm_symbols(col = "category", border.col = "black", border.lwd = 0.3, size = 0.05, alpha = 0.7, title.col = " ", palette = "PRGn") +
   tm_legend(outside = TRUE) +
   tm_layout(legend.title.size = 1, legend.title.fontface = "bold", legend.text.size = 1, frame = F) 
 
@@ -80,9 +90,41 @@ hyp_eut_map <-
 tmap_save(hyp_eut_map, filename = "../../Figs/hyp_eut_map.png", width = 6, height = 2.5, units = "in")
 ```
 
+Base plot
+
+```{r}
+
+world <- as(worldmap, "Spatial")
+hypo <- sites_sf %>%
+  filter(category == "Hypoxic") %>%
+  as('Spatial')
+eutro <- sites_sf %>%
+  filter(category == "Eutrophic") %>%
+  as('Spatial')
+ 
+plot(oa_wgs, col = cols)
+plot(world, add = T, col = "cornsilk")
+points(hypo, add = T, bg = "darkgreen", col = "black", pch = 21)
+points(eutro, add = T, bg = "purple", col = "black", pch = 21)
+contour(oa_wgs, add = T)
 
 
+plot(worldmap$NAME, col = "ivory", alpha = 0.7, lwd = 0.5)
 
+contour(oa, add = T)
+```
+
+```{r}
+library(ggplot2)
+v <- ggplot(faithfuld, aes(waiting, eruptions, z = density))
+v + geom_raster(aes(fill = density)) +
+    geom_contour(colour = "white")
+
+t <- ggplot(oa) +
+  geom_raster(aes(fill = density))
+```
+
+Base plot
 
 
 
