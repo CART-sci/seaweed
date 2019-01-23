@@ -328,6 +328,56 @@ st_area(x3)
 x3 <- x3 %>% as('Spatial')
 ```
 
+## Sea Surface Temperature
+
+```{r}
+# set tmp directory
+tmpdir=file.path(dir_a, 'big')
+rasterOptions(tmpdir=tmpdir)
+
+#Bring in SST
+weekly_sst   = stack(file.path(dir_a, 'ARF/CoRTAD/cortadv6_WeeklySST.nc'), varname='WeeklySST')
+
+yrs <- c(2009:2017)
+
+#Aggregate cell size up to a coarser resolution for better processing
+
+agg_func <- function(y){
+  
+  yr_sub <- raster::subset(weekly_sst, grep(y, names(weekly_sst), value = T)) 
+  yr_agg <- raster::aggregate(yr_sub, fact = 20, fun = mean, na.rm=T, progress = "text", filename = paste0(dir_a, "/ARF/CoRTAD/tmp/coarse_res_", y, ".tif"))
+  
+}
+
+for(i in 1:length(yrs)){
+  y <- yrs[i]
+  print(y)
+  agg_func(y)
+}
+```
+
+
+```{r}
+#grab last 10 years (2008-2017)
+
+tmp <- list.files(file.path(dir_a, "ARF/CoRTAD/tmp"), full.names = T)
+
+tenyr_stack <- raster::stack(tmp) 
+
+#calculate mean across entire stack
+calc(tenyr_stack, fun = function(x){mean(x, na.rm = TRUE)},
+          filename = file.path(dir_a, "ARF/ten_yr_mean.tif"), 
+          overwrite = T,
+          progress = "text")
+
+
+sd_sst = calc(s, fun = function(x){sd(x, na.rm = TRUE)},
+                progress ="text",
+                filename = file.path(dir_int, sprintf("sd_sst_week_%s.tif", i)))
+
+```
+
+
 
 ## Final Map
 
