@@ -20,7 +20,7 @@ library(readxl)
 
 #point to aquaculture folder on aurora
 dir_a <- c('Windows' = '//aurora.nceas.ucsb.edu/aquaculture',
-           'Darwin'  = '/Volumes/aquaculture',    ### connect (cmd-K) to smb://mazu/ohi
+           'Darwin'  = '/Volumes/aquaculture',    
            'Linux'   = '/home/shares/aquaculture')[[ Sys.info()[['sysname']] ]]
 
 #set rainbow color scheme
@@ -49,9 +49,19 @@ Load OA map
 
 ```{r}
 oa <- raster(file.path(dir_a, "ARF/oa/global_arag_avg_moll_2016.tif"))
-oa[oa>3.05]<-NA #using 3.05 to get contour lines for Aragonite values at 3
+# ocean <- raster(file.path(dir_a, "ARF/oa/ocean.tif")) %>% #ocean raster at 1km touse for mask
+#           resample(oa)
+  
+#interpolate across NA
+xy <- data.frame(xyFromCell(oa, 1:ncell(oa)))                         #get xy coords into dataframe
+v  <- getValues(oa)                                                   #get cell values 
+tmpdf <- cbind(xy, v)%>%filter(!is.na(v))                             #create dataframe of x,y, and values. remove NAs (throws error since these are cells we are interpolating over)
+mg <- gstat::gstat(id = "v", formula = v~1, locations = ~x+y, data=tmpdf,
+            nmax=7, set=list(idp = 2)) #define model. power function = 2, this is default for idw models
+oa_int <- interpolate(oa, mg, progress='text')  
+oa_mask <- mask(oa_int, ocean)
 
-oa_wgs <- projectRaster(oa, crs = "+proj=longlat +datum=WGS84 +no_defs")
+oa_mask[oa_mask>3.05]<-NA #using 3.05 to get contour lines for Aragonite values at 3
 ```
 
 
@@ -69,66 +79,48 @@ worldmap <- rnaturalearth::ne_download(scale = 110,
 
 
 ```{r}
-#get contour lines
-levels <- c(1,2,3)
-oa_cont <- rasterToContour(oa, levels = levels)
+# #get contour lines
+# levels <- c(1,2,3)
+# oa_cont <- rasterToContour(oa, levels = levels, drawLabels = T)
 
 #make map
 hyp_eut_map <- 
-  tm_shape(oa) +
-  tm_raster(palette = "RdYlBu", style = "cont", title = "Arag.") +
-  tm_shape(oa_cont) +
-  tm_lines() +
+  tm_shape(oa_mask) +
+  tm_raster(palette = "RdYlBu", style = "cont", title = "Ω (aragonite \nsaturation state)") +
+  # tm_shape(oa_cont) +
+  # tm_lines() +
   tm_shape(worldmap) +
-  tm_polygons(col = "ivory", lwd = 0.5, alpha = 0.7) +
+  tm_polygons(col = "ivory", lwd = 0.5, alpha = 0.85) +
   tm_shape(sites_sf) +
-  tm_symbols(col = "category", border.col = "black", border.lwd = 0.3, size = 0.05, alpha = 0.7, title.col = " ", palette = "PRGn") +
+  tm_symbols(col = "category", border.col = "black", border.lwd = 0.3, 
+             size = 0.05, alpha = 0.7, title.col = " ", palette = "PRGn", legend.col.show = FALSE) +
   tm_legend(outside = TRUE) +
-  tm_layout(legend.title.size = 1, legend.title.fontface = "bold", legend.text.size = 1, frame = F) 
+  tm_add_legend(type = "symbol", shape = 21, labels = "Hypoxic site", col = "#AF8DC3", size = 0.4) +
+  tm_add_legend(type = "symbol", shape = 21, labels = "Eutrophic site", col = "#7FBF7B", size = 0.4) +
+  tm_layout(legend.title.size = 0.8, legend.title.fontface = "bold", frame = F) 
 
 
 tmap_save(hyp_eut_map, filename = "../../Figs/hyp_eut_map.png", width = 6, height = 2.5, units = "in")
 ```
 
-Base plot
+
+Get list of countries that have hypoxic, eutrophic and/or acidic conditions. 
 
 ```{r}
+#suitable countries for seaweed
+ctrys <- read_csv("~/github/seaweed/Data/sw_feasible_countries.csv")
 
-world <- as(worldmap, "Spatial")
-hypo <- sites_sf %>%
-  filter(category == "Hypoxic") %>%
+#reading in the OHI EEZ shapefile from aurora and filtering just for EEZs while removing Antarctica
+eezs <- read_sf(file.path(dir_a, "input/world_eezs/regions_2017_update.shp"), quiet = T) %>%
+  filter(rgn_name %in% country) %>%
+  st_transform(crs = 4326) %>%
   as('Spatial')
-eutro <- sites_sf %>%
-  filter(category == "Eutrophic") %>%
-  as('Spatial')
- 
-plot(oa_wgs, col = cols)
-plot(world, add = T, col = "cornsilk")
-points(hypo, add = T, bg = "darkgreen", col = "black", pch = 21)
-points(eutro, add = T, bg = "purple", col = "black", pch = 21)
-contour(oa_wgs, add = T)
 
 
-plot(worldmap$NAME, col = "ivory", alpha = 0.7, lwd = 0.5)
+#intersect the sites with eezs
 
-contour(oa, add = T)
+sites_int <- intersect(eezs, sites_sf)
 ```
-
-```{r}
-library(ggplot2)
-v <- ggplot(faithfuld, aes(waiting, eruptions, z = density))
-v + geom_raster(aes(fill = density)) +
-    geom_contour(colour = "white")
-
-t <- ggplot(oa) +
-  geom_raster(aes(fill = density))
-```
-
-Base plot
-
-
-
-
 
 
 
