@@ -43,7 +43,9 @@ library(leaflet)
 
 #point to aquaculture folder on aurora
 dir_a <- c('Windows' = '//aurora.nceas.ucsb.edu/aquaculture',
+           'Darwin'  = '/Volumes/aquaculture',   
            'Linux'   = '/home/shares/aquaculture')[[ Sys.info()[['sysname']] ]]
+
 
 #set rainbow color scheme
 cols      = colorRampPalette(brewer.pal(9, 'Spectral'))(255) # rainbow color scheme
@@ -193,6 +195,7 @@ t <- c %>%
   filter(feas_area > 0) 
 
 t$country
+write.csv(t, file = "~/github/seaweed/Data/sw_feasible_countries.csv")
 
 #now we have the countries that have at least one feasible cell
 ```
