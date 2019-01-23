@@ -1,10 +1,22 @@
 ---
-title: "Hypoxic and Eutrophic map"
-author: "Jamie Afflerbach"
-date: "1/18/2019"
-output: html_document
+title: "Hypoxic, Eutrophic & OA map"
+author: "*Compiled on `r date()` by `r Sys.info()['user']`*"
+output: 
+  html_document:
+    code_folding: hide
+    toc: true
+    toc_depth: 3
+    toc_float: yes
+    number_sections: false
+    theme: cerulean
+    highlight: haddock
+  pdf_document:
+    toc: true
 ---
 
+## Summary
+
+This script creates a map showing regions of the world where acidic conditions exist (aragonite saturation state <= 3), along with specific sites identified as either Eutrophic or Hypoxic. At the end of this script, multiple statistics are run to glean information about countries that are suitable for seaweed farming. For example, how many countries that have been identified as suitable for seaweed farming are also experiencing hypoxic, eutrophic AND acidic conditions? (Hint it's 24).
 
 ## Setup
 
@@ -27,30 +39,38 @@ dir_a <- c('Windows' = '//aurora.nceas.ucsb.edu/aquaculture',
 cols      = colorRampPalette(brewer.pal(9, 'Spectral'))(255) # rainbow color scheme
 ```
 
-Read in hypoxic eutrophic site
+
+## Data cleaning
+
+### Hypoxic/eutrophic data
+
+Read in hypoxic eutrophic site data
 
 ```{r}
 sites <- read_excel("~/github/seaweed/Data/wri_eutrophic_hypoxic_dataset_2011-03.xls")
 
-#filter for decade 2000
-sites_2000 <- sites %>%
+#filter for only eutrophic and hypoxic sites
+sites_he <- sites %>%
   mutate(category = ifelse(Classification == "eutrophic", "Eutrophic", Classification)) %>%
   filter(!category %in% c("Improved", "improved"))
 ```
 
-Create `sf` object
+Create `sf` object from sites
 
 ```{r}
-sites_sf <- st_as_sf(sites_2000,coords = c("Long", "Lat"), crs = 4326) %>%
+sites_sf <- st_as_sf(sites_he,coords = c("Long", "Lat"), crs = 4326) %>%
   st_transform(crs = "+proj=moll +lon_0=0 +x_0=0 +y_0=0 +ellps=WGS84 +units=m +no_defs")
 ```
 
-Load OA map
+### Ocean Acidification
+
+Load OA raster, interpolate to gapfill missing cells especially at the Arctic, and then remove all cells with Aragonite saturation state greater than 3
 
 ```{r}
-oa <- raster(file.path(dir_a, "ARF/oa/global_arag_avg_moll_2016.tif"))
-# ocean <- raster(file.path(dir_a, "ARF/oa/ocean.tif")) %>% #ocean raster at 1km touse for mask
-#           resample(oa)
+#load OA raster from 2016
+oa    <- raster(file.path(dir_a, "ARF/oa/global_arag_avg_moll_2016.tif")) 
+ocean <- raster(file.path(dir_a, "ARF/oa/ocean.tif")) %>% #ocean raster at 1km touse for mask
+           resample(oa)
   
 #interpolate across NA
 xy <- data.frame(xyFromCell(oa, 1:ncell(oa)))                         #get xy coords into dataframe
@@ -62,10 +82,12 @@ oa_int <- interpolate(oa, mg, progress='text')
 oa_mask <- mask(oa_int, ocean)
 
 oa_mask[oa_mask>3.05]<-NA #using 3.05 to get contour lines for Aragonite values at 3
+plot(oa_mask, col = cols)
 ```
 
+## Make map
 
-Get world map
+### Get world map
 
 ```{r}
 #grab the worldmap from rnaturalearth
@@ -77,12 +99,9 @@ worldmap <- rnaturalearth::ne_download(scale = 110,
                                        returnclass = "sf")
 ```
 
+### Final map and save
 
 ```{r}
-# #get contour lines
-# levels <- c(1,2,3)
-# oa_cont <- rasterToContour(oa, levels = levels, drawLabels = T)
-
 #make map
 hyp_eut_map <- 
   tm_shape(oa_mask) +
@@ -101,8 +120,12 @@ hyp_eut_map <-
 
 
 tmap_save(hyp_eut_map, filename = "../../Figs/hyp_eut_map.png", width = 6, height = 2.5, units = "in")
+
+hyp_eut_map
 ```
 
+
+## Get country specific statistics
 
 Get list of countries that have hypoxic, eutrophic and/or acidic conditions. 
 
@@ -111,16 +134,113 @@ Get list of countries that have hypoxic, eutrophic and/or acidic conditions.
 ctrys <- read_csv("~/github/seaweed/Data/sw_feasible_countries.csv")
 
 #reading in the OHI EEZ shapefile from aurora and filtering just for EEZs while removing Antarctica
-eezs <- read_sf(file.path(dir_a, "input/world_eezs/regions_2017_update.shp"), quiet = T) %>%
-  filter(rgn_name %in% country) %>%
-  st_transform(crs = 4326) %>%
-  as('Spatial')
-
+eezs <- read_sf(file.path(dir_a, "input/world_eezs/regions_2017_update.shp"), quiet = T) 
 
 #intersect the sites with eezs
+st_crs(sites_sf) <- "+proj=moll +lon_0=0 +x_0=0 +y_0=0 +datum=WGS84 +units=m +no_defs"
+sites_int <- st_intersection(eezs, sites_sf)
 
-sites_int <- intersect(eezs, sites_sf)
+#get the columns we want (country, classification, site info)
+si <- sites_int %>%
+  dplyr::select(rgn_name, System, Country, Classification) %>%
+  distinct()
+#remove geometry
+st_geometry(si) <- NULL
+
+#dataframe that lists each country, and how many sites are eutrophic or hypoxic within each, filtered for feasible countries
+ctrys_w_eut_hyp <- si %>%
+  mutate(Classification = ifelse(Classification == "eutrophic", "Eutrophic", Classification)) %>%
+  group_by(rgn_name) %>%
+  add_count(Classification) %>%
+  dplyr::select(rgn_name, Classification, n) %>%
+  distinct() %>%
+  filter(rgn_name %in% ctrys$country)
 ```
+
+
+Get list of countries that have acidic conditions (aragonite saturation state < 3)
+
+```{r}
+#overlay EEZ shapefile on our masked out OA layer to get countries with cells w/ acidic conditions
+oa_ctrys <- extract(oa_mask, eezs, df = TRUE)
+
+#remove NA cells and match up IDs
+oa_ctry <- oa_ctrys %>%
+  filter(!is.na(x)) 
+
+#grab IDs from the extract data frame
+ctry_ids <- unique(oa_ctry$ID)
+
+#create a column in eezs that is equivalent to the rownames (which are the IDs returned from extract)
+eezs$IDs <- row.names(eezs)
+
+#see what countries those are from eezs
+a <- eezs %>%
+  filter(IDs %in% ctry_ids)
+st_geometry(a) <- NULL
+
+#get final list of countries w/ acidic conditions
+final_oa_countries <- a %>%
+  filter(rgn_type != "fao") %>%
+  dplyr::select(rgn_name) %>%
+  distinct() %>%
+  filter(rgn_name %in% ctrys$country)
+```
+
+Now we combine the hypoxic/eutrophic dataframe with the ocean acidification one
+
+```{r}
+b <- ctrys_w_eut_hyp %>%
+  bind_rows(final_oa_countries) %>% #add in the OA countries
+  mutate(Classification = ifelse(is.na(Classification), "oa", Classification),
+         n = ifelse(Classification == "oa", 1, n)) %>%
+  spread(key = Classification, value = n) %>%
+  mutate(OA = ifelse(rgn_name %in% final_oa_countries$rgn_name, 1, 0),
+         Eutrophic = ifelse(!is.na(Eutrophic), 1, 0),
+         Hypoxic = ifelse(!is.na(Hypoxic), 1, 0)) %>%
+  dplyr::select(-oa) %>%
+  mutate(sum = sum(OA, Eutrophic, Hypoxic))
+
+write.csv(b, file = "~/github/seaweed/Data/countries_w_hyp_eut_oa_conditions.csv")
+```
+
+
+Time to run some stats.
+
+How many countries have acidic conditions?
+
+```{r}
+b %>%
+  filter(OA == 1) %>%
+  nrow()
+```
+And # of suitable countries with eutrophic, hypoxic, OR acidic conditions, please! 
+
+These countries have all three conditions
+
+```{r}
+b %>% filter(sum == 3) %>% .$rgn_name
+```
+
+Number of feasible countries with Eutrophic conditions
+```{r}
+b %>% filter(Eutrophic==1) %>% nrow()
+```
+
+
+Number of feasible countries with Hypoxic conditions
+```{r}
+b %>% filter(Hypoxic == 1) %>% nrow()
+```
+
+Number of feasible countries with Eutrophic and Hypoxic
+```{r}
+b %>% filter(Eutrophic == 1 & Hypoxic == 1) %>% nrow()
+```
+
+
+
+
 
 
 
