@@ -23,7 +23,7 @@ This script creates a global map showing:
 
 ## Summary
 
-We used oceanic N:P to identify feasible seaweed growing areas. Spatial data from the World Ocean Atlas (2013) for phosphate and nitrate were downloaded and used to calculate the N:P ratio in the top 10 meters of surface water. Cells with N:P values outside the range of 4:1 to 80:1 were removed. Harrison & Hurd (2001) state that a ratio of 30:1 is ideal for optimal seaweed growth, but the range extends from 10:1 to 80:1 (Atkinson 1983). Areas with known native seaweeds (e.g. Pacific coast of N. America) were not captured when the N:P layer used a range minimum of 10:1. This is likely due to coarse spatial data resolution (1 degree cells) and not reflective of where seaweeds grow. The range was expanded in order to capture all areas that have been identified as having native seaweeds (Teagle et al. 2017). All cells outside of delineated EEZs were also removed to limit feasible areas to those within country's waters. Native seaweed ranges were drawn manually based on the map in Teagle et al. (2017) using the R packages `mapview` and `mapedit`. FAO data on global production of aquatic plants was used to identify countries that have produced farmed marine plants within the most recently available 5 years of data (2012-2016). Polygons to identify areas required to farm seaweed under the three offset scenarios were created manually using the `sf` (Simple Features) package.
+We used oceanic N:P to identify feasible seaweed growing areas. Spatial data from the World Ocean Atlas (2013) for phosphate and nitrate were downloaded and used to calculate the N:P ratio in the top 10 meters of surface water. Cells with N:P values outside the range of 4:1 to 80:1 were removed. Harrison & Hurd (2001) state that a ratio of 30:1 is ideal for optimal seaweed growth, but the range extends from 10:1 to 80:1 (Atkinson 1983). Areas with known native seaweeds (e.g. Pacific coast of N. America) were not captured when the N:P layer used a range minimum of 10:1. This is likely due to coarse spatial data resolution (1 degree cells) and not reflective of where seaweeds grow. The range was expanded in order to capture all areas that have been identified as having native seaweeds (Teagle et al. 2017). All cells outside of delineated EEZs were also removed to limit feasible areas to those within country's waters. Areas with Sea Surface Temperature (SST) outside of the 0-35 degree celsius range were also removed from the feasibility map. Native seaweed ranges were drawn manually based on the map in Teagle et al. (2017) using the R packages `mapview` and `mapedit`. FAO data on global production of aquatic plants was used to identify countries that have produced farmed marine plants within the most recently available 5 years of data (2012-2016). Polygons to identify areas required to farm seaweed under the three offset scenarios were created manually using the `sf` (Simple Features) package.
 
 For more details see data and code at https://github.com/CART-sci/seaweed.
 
@@ -164,7 +164,9 @@ Now we want to cut out all high seas areas and only keep feasible areas in EEZs.
 eezs <- read_sf(file.path(dir_a, "input/world_eezs/regions_2017_update.shp"), quiet = T) %>%
   filter(rgn_type == "eez",
          rgn_name != "Antarctica") %>%
-  st_transform(crs = 4326) %>%
+  st_transform(crs = 4326) 
+
+eezs_shp_wgs <- eezs %>%
   as('Spatial')
 
 #masking the N:P raster with the eezs shapefile
@@ -172,26 +174,103 @@ n_to_p_eez <- mask(n_to_p, eezs)
 ```
 
 
-Get total area of `n_to_p_eez`
+## Sea Surface Temperature
+
+Starting with the CoRTAD dataset for Weekly SST from 1982 - 2017. This is a large file and requires some heavy processing. To reduce processing load, I aggregated cells up by a factor of 20, and then saved each annual file as a separate raster stack to the server. This took a very long time (over a day) to run.
+
+```{r, eval = F}
+##THIS TAKES A VERY LONG TIME TO RUN (like over a day)
+
+# set tmp directory
+tmpdir=file.path(dir_a, 'big')
+rasterOptions(tmpdir=tmpdir)
+
+#Bring in SST from server
+weekly_sst = stack(file.path(dir_a, 'ARF/CoRTAD/cortadv6_WeeklySST.nc'), varname='WeeklySST')
+
+#years we are interested in
+yrs <- c(2008:2017)
+
+#Function to aggregate cell size up to a coarser resolution for better processing
+agg_func <- function(y){
+  
+  yr_sub <- raster::subset(weekly_sst, grep(y, names(weekly_sst), value = T)) 
+  yr_agg <- raster::aggregate(yr_sub, fact = 20, fun = mean, na.rm=T, progress = "text", filename = paste0(dir_a, "/ARF/CoRTAD/tmp/coarse_res_", y, ".tif"))
+  
+}
+
+#for each year, run the aggregation function
+for(i in 1:length(yrs)){
+  y <- yrs[i]
+  print(y)
+  agg_func(y)
+}
+```
+
+Calculate mean and standard deviation of SST per cell
+
+```{r, eval = F}
+#grab last 10 years (2008-2017)
+
+tmp <- list.files(file.path(dir_a, "ARF/CoRTAD/tmp"), full.names = T)
+
+tenyr_stack <- raster::stack(tmp) 
+
+#calculate mean across entire stack
+calc(tenyr_stack, fun = function(x){mean(x - 273.15, na.rm = TRUE)},
+          filename = file.path(dir_a, "ARF/ten_yr_mean.tif"), 
+          overwrite = T,
+          progress = "text")
+
+#calculate standard deviation across stack
+calc(tenyr_stack, fun = function(x){sd(x - 273.15, na.rm = TRUE)},
+          filename = file.path(dir_a, "ARF/ten_yr_sd.tif"), 
+          overwrite = T,
+          progress = "text")
+```
+
+```{r}
+sst_mean <- raster(file.path(dir_a, "ARF/ten_yr_mean.tif")) 
+sst_sd   <- raster(file.path(dir_a, "ARF/ten_yr_sd.tif"))
+```
+
+Remove cells outside the 0-35 degrees Celsius range
+
+```{r}
+sst_mean_suit <- sst_mean 
+sst_mean_suit[sst_mean_suit < 0 | sst_mean_suit > 35] <- NA
+```
+
+Remove N to P areas that have SST outside of this range
+
+```{r}
+#need to resample n_to_p ratio down to SST cell size
+n_to_p_res <- resample(n_to_p_eez, sst_mean_suit, method = "ngb")
+
+#remove n_to_p areas outside of the sst suitable range
+n_to_p_suit <- mask(n_to_p_res, sst_mean_suit)
+```
+
+Get total area of `n_to_p_suit`
 ```{r}
 #get area of all cells
-a <-area(n_to_p_eez)
+a <- area(n_to_p_suit)
 
-#select just those cells in n_to_p_eez
-b <- mask(a, n_to_p_eez)
+#select just those cells in n_to_p_suit
+b <- mask(a, n_to_p_suit)
 ```
 
 Total available area is `r cellStats(b, 'sum')` km2.
 
 Next I want to get a list of all countries where there is feasible area. I can use `raster::extract()` to do this :
-```{r}
+```{r, eval = F}
 #this gives us a list of 220 objects representing each country. We only want the objects in the list that have values.
-c <- raster::extract(n_to_p_eez, eezs, df = TRUE)
+c <- raster::extract(n_to_p_suit, eezs, df = TRUE, small = T)
 
 t <- c %>%
   group_by(ID) %>%
   summarize(feas_area = sum(layer, na.rm=T)) %>%
-  mutate(country = eezs@data$rgn_name) %>%
+  mutate(country = eezs$rgn_name) %>%
   filter(feas_area > 0) 
 
 t$country
@@ -263,26 +342,6 @@ In order to add lines identifying areas of the world where native seaweeds grow 
 sw_lines <- read_sf("../../Data/seaweed_range_lines.shp")
 ```
 
-Plot N:P raster, plus countries producing marine seaweed, and the marine seaweed lines
-```{r}
-land_cols <- c("beige", "darkolivegreen4")
-
-library(tmap)
-tmap_mode("plot")
-
-tm_shape(n_to_p_eez) +
-  tm_raster(palette = "-RdYlBu", style = "cont", auto.palette.mapping=FALSE, title = "N:P") +
-  tm_shape(aq_map) +
-  tm_polygons("aq_production", 
-              legend.title = "Countries currently farming seaweeds", 
-              palette = land_cols, alpha = 0.7,  legend.show = F) +
-  tm_shape(sw_lines) +
-  tm_lines(col = "darkred", lwd = 2.3, lty = "solid") +
-  tm_legend(outside = TRUE) +
-  tm_add_legend(type = "fill", labels = "Countries currently farming seaweed", col = "darkolivegreen4", alpha = 0.7, border.col = "darkgray") +
-  tm_add_legend(type = "line", labels = "Native range for wild seaweeds", col = "darkred", lwd = 2.3) 
-```
-
 #Area polygons
 
 We need to include three different polygons that show the area that needs to be dedicated to farming seaweed to offset CO2 in each scenario.
@@ -331,57 +390,6 @@ st_area(x3)
 x3 <- x3 %>% as('Spatial')
 ```
 
-## Sea Surface Temperature
-
-```{r}
-# set tmp directory
-tmpdir=file.path(dir_a, 'big')
-rasterOptions(tmpdir=tmpdir)
-
-#Bring in SST
-weekly_sst   = stack(file.path(dir_a, 'ARF/CoRTAD/cortadv6_WeeklySST.nc'), varname='WeeklySST')
-
-yrs <- c(2009:2017)
-
-#Aggregate cell size up to a coarser resolution for better processing
-
-agg_func <- function(y){
-  
-  yr_sub <- raster::subset(weekly_sst, grep(y, names(weekly_sst), value = T)) 
-  yr_agg <- raster::aggregate(yr_sub, fact = 20, fun = mean, na.rm=T, progress = "text", filename = paste0(dir_a, "/ARF/CoRTAD/tmp/coarse_res_", y, ".tif"))
-  
-}
-
-for(i in 1:length(yrs)){
-  y <- yrs[i]
-  print(y)
-  agg_func(y)
-}
-```
-
-
-```{r}
-#grab last 10 years (2008-2017)
-
-tmp <- list.files(file.path(dir_a, "ARF/CoRTAD/tmp"), full.names = T)
-
-tenyr_stack <- raster::stack(tmp) 
-
-#calculate mean across entire stack
-calc(tenyr_stack, fun = function(x){mean(x, na.rm = TRUE)},
-          filename = file.path(dir_a, "ARF/ten_yr_mean.tif"), 
-          overwrite = T,
-          progress = "text")
-
-
-sd_sst = calc(s, fun = function(x){sd(x, na.rm = TRUE)},
-                progress ="text",
-                filename = file.path(dir_int, sprintf("sd_sst_week_%s.tif", i)))
-
-```
-
-
-
 ## Final Map
 
 Create the final map including all layers!
@@ -390,7 +398,15 @@ Create the final map including all layers!
 #blue color scheme for N:P ratio
 b <- c("#08306B",  "#4292C6", "#6BAED6", "#9ECAE1", "#C6DBEF", "#DEEBF7", "#F7FBFF")
 
+#colors for land
+land_cols <- c("beige", "darkolivegreen4")
+```
+
+```{r}
+#final map
 big_map <- tm_shape(n_to_p_eez) +
+  tm_raster(palette = "white", legend.show = F) + #i've only added this layer as white because it keeps the sw_lines from drawing a line across the map! Seriously remove these first two lines and its the same map but with a line across the whole thing
+  tm_shape(n_to_p_suit) +
   tm_raster(palette = b, style = "cont", title = "N:P") +
   tm_shape(aq_map) +
   tm_polygons("aq_production", 
@@ -407,15 +423,15 @@ big_map <- tm_shape(n_to_p_eez) +
   tm_legend(outside = TRUE) +
   tm_add_legend(type = "fill", labels = "Countries farming seaweed", col = "darkolivegreen4", alpha = 0.7, border.col = "darkgray") +
   tm_add_legend(type = "line", labels = "Native range for wild seaweeds", col = "darkred", lwd = 2) +
-  tm_add_legend(type = "symbol", shape = 15, labels = "Finfish & Crustacean Aquaculture", col = "black", size = 0.1, title = "CO2eq offset scenarios") +
+  tm_add_legend(type = "symbol", shape = 15, labels = "Finfish & crustacean aquaculture", col = "black", size = 0.1, title = "CO2eq offset scenarios") +
   tm_add_legend(type = "symbol", shape = 22, labels = "California agriculture", col = "gray90", size = 0.35, border.col = "gray30", border.lwd = 0.7) +
   tm_add_legend(type = "fill", labels = "Global agriculture", col = "gray60", size = .5, border.col = "gray30") +
   tm_layout(legend.title.size = 0.8, legend.title.fontface = "bold")
 ```
 
-Save
-
 ```{r}
-tmap_save(big_map, filename = "../../Figs/map.png", width = 6, height = 2.5, units = "in")
+##save
+tmap_save(big_map, filename = "../../Figs/map.png", width = 12, height = 5)
+tmap_save(big_map, filename = "../../Figs/map.pdf", width = 12, height = 5)
 ```
 
