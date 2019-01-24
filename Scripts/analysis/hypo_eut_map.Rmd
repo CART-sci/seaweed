@@ -58,8 +58,7 @@ sites_he <- sites %>%
 Create `sf` object from sites
 
 ```{r}
-sites_sf <- st_as_sf(sites_he,coords = c("Long", "Lat"), crs = 4326) %>%
-  st_transform(crs = "+proj=moll +lon_0=0 +x_0=0 +y_0=0 +ellps=WGS84 +units=m +no_defs")
+sites_sf <- st_as_sf(sites_he,coords = c("Long", "Lat"), crs = 4326) 
 ```
 
 ### Ocean Acidification
@@ -82,7 +81,9 @@ oa_int <- interpolate(oa, mg, progress='text')
 oa_mask <- mask(oa_int, ocean)
 
 oa_mask[oa_mask>3.05]<-NA #using 3.05 to get contour lines for Aragonite values at 3
-plot(oa_mask, col = cols)
+
+oa_wgs <- projectRaster(oa_mask, crs = "+proj=longlat +datum=WGS84 +no_defs")
+plot(oa_wgs, col = cols)
 ```
 
 ## Make map
@@ -104,12 +105,12 @@ worldmap <- rnaturalearth::ne_download(scale = 110,
 ```{r}
 #make map
 hyp_eut_map <- 
-  tm_shape(oa_mask) +
-  tm_raster(palette = "RdYlBu", style = "cont", title = "Ω (aragonite \nsaturation state)") +
+  tm_shape(oa_wgs) +
+  tm_raster(palette = "RdYlBu", style = "cont", title = "Aragonite \nsaturation state") +
   # tm_shape(oa_cont) +
   # tm_lines() +
   tm_shape(worldmap) +
-  tm_polygons(col = "ivory", lwd = 0.5, alpha = 0.85) +
+  tm_polygons(col = "ivory", lwd = 0.5) +
   tm_shape(sites_sf) +
   tm_symbols(col = "category", border.col = "black", border.lwd = 0.3, 
              size = 0.05, alpha = 0.7, title.col = " ", palette = "PRGn", legend.col.show = FALSE) +
@@ -119,7 +120,7 @@ hyp_eut_map <-
   tm_layout(legend.title.size = 0.8, legend.title.fontface = "bold", frame = F) 
 
 
-tmap_save(hyp_eut_map, filename = "../../Figs/hyp_eut_map.png", width = 6, height = 2.5, units = "in")
+tmap_save(hyp_eut_map, filename = "../../Figs/hyp_eut_map.pdf", width = 6, height = 2.5, units = "in")
 
 hyp_eut_map
 ```
@@ -137,8 +138,10 @@ ctrys <- read_csv("~/github/seaweed/Data/sw_feasible_countries.csv")
 eezs <- read_sf(file.path(dir_a, "input/world_eezs/regions_2017_update.shp"), quiet = T) 
 
 #intersect the sites with eezs
-st_crs(sites_sf) <- "+proj=moll +lon_0=0 +x_0=0 +y_0=0 +datum=WGS84 +units=m +no_defs"
-sites_int <- st_intersection(eezs, sites_sf)
+sites_moll <- sites_sf %>%
+  st_transform(crs = "+proj=moll +lon_0=0 +x_0=0 +y_0=0 +datum=WGS84 +units=m +no_defs")
+
+sites_int <- st_intersection(eezs, sites_moll)
 
 #get the columns we want (country, classification, site info)
 si <- sites_int %>%
