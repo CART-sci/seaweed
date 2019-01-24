@@ -21,13 +21,13 @@ This script creates a global map showing:
 3. Countries that are currently farming seaweed  
 4. How much area is needed to farm seaweed under three offset scenarios
 
-## Summary
+# Summary
 
 We used oceanic N:P to identify feasible seaweed growing areas. Spatial data from the World Ocean Atlas (2013) for phosphate and nitrate were downloaded and used to calculate the N:P ratio in the top 10 meters of surface water. Cells with N:P values outside the range of 4:1 to 80:1 were removed. Harrison & Hurd (2001) state that a ratio of 30:1 is ideal for optimal seaweed growth, but the range extends from 10:1 to 80:1 (Atkinson 1983). Areas with known native seaweeds (e.g. Pacific coast of N. America) were not captured when the N:P layer used a range minimum of 10:1. This is likely due to coarse spatial data resolution (1 degree cells) and not reflective of where seaweeds grow. The range was expanded in order to capture all areas that have been identified as having native seaweeds (Teagle et al. 2017). All cells outside of delineated EEZs were also removed to limit feasible areas to those within country's waters. Areas with Sea Surface Temperature (SST) outside of the 0-35 degree celsius range were also removed from the feasibility map. Native seaweed ranges were drawn manually based on the map in Teagle et al. (2017) using the R packages `mapview` and `mapedit`. FAO data on global production of aquatic plants was used to identify countries that have produced farmed marine plants within the most recently available 5 years of data (2012-2016). Polygons to identify areas required to farm seaweed under the three offset scenarios were created manually using the `sf` (Simple Features) package.
 
 For more details see data and code at https://github.com/CART-sci/seaweed.
 
-## Setup
+# Setup
 
 ```{r setup, message = F, warning = F}
 knitr::opts_chunk$set(echo = TRUE, message = F, warning = F)
@@ -51,7 +51,9 @@ dir_a <- c('Windows' = '//aurora.nceas.ucsb.edu/aquaculture',
 cols      = colorRampPalette(brewer.pal(9, 'Spectral'))(255) # rainbow color scheme
 ```
 
-### Phosphate data
+# Data wrangling
+
+## Phosphate data
 
 Load the .csv of Phosphate downloaded to aurora. This data was downloaded from the [World Ocean Atlas 2013](https://www.nodc.noaa.gov/cgi-bin/OC5/woa13/woa13oxnu.pl). We need to skip the first row since it just contains a string.
 
@@ -92,7 +94,7 @@ phos <- map(depths, depth_raster) %>%
 plot(phos)
 ```
 
-### Nitrogen data
+## Nitrogen data
 
 Load the .csv of nitrate downloaded to aurora. This data was downloaded from the [World Ocean Atlas 2013](https://www.nodc.noaa.gov/cgi-bin/OC5/woa13/woa13oxnu.pl). We need to skip the first row since it just contains a string.
 
@@ -207,7 +209,7 @@ for(i in 1:length(yrs)){
 }
 ```
 
-Calculate mean and standard deviation of SST per cell
+### Calculate mean and standard deviation of SST per cell
 
 ```{r, eval = F}
 #grab last 10 years (2008-2017)
@@ -234,14 +236,16 @@ sst_mean <- raster(file.path(dir_a, "ARF/ten_yr_mean.tif"))
 sst_sd   <- raster(file.path(dir_a, "ARF/ten_yr_sd.tif"))
 ```
 
-Remove cells outside the 0-35 degrees Celsius range
+### Remove cells outside the 0-35 degrees Celsius range
 
 ```{r}
 sst_mean_suit <- sst_mean 
 sst_mean_suit[sst_mean_suit < 0 | sst_mean_suit > 35] <- NA
+#extent of sst_mean_suit is slightly off from n_to_p_eez
+extent(sst_mean_suit) <- extent(n_to_p_eez)
 ```
 
-Remove N to P areas that have SST outside of this range
+### Remove N to P areas that have SST outside of this range
 
 ```{r}
 #need to resample n_to_p ratio down to SST cell size
@@ -251,7 +255,7 @@ n_to_p_res <- resample(n_to_p_eez, sst_mean_suit, method = "ngb")
 n_to_p_suit <- mask(n_to_p_res, sst_mean_suit)
 ```
 
-Get total area of `n_to_p_suit`
+### Get total area of `n_to_p_suit`
 ```{r}
 #get area of all cells
 a <- area(n_to_p_suit)
@@ -261,6 +265,8 @@ b <- mask(a, n_to_p_suit)
 ```
 
 Total available area is `r cellStats(b, 'sum')` km2.
+
+## Countries farming seaweed
 
 Next I want to get a list of all countries where there is feasible area. I can use `raster::extract()` to do this :
 ```{r, eval = F}
@@ -278,8 +284,6 @@ write.csv(t, file = "~/github/seaweed/Data/sw_feasible_countries.csv")
 
 #now we have the countries that have at least one feasible cell
 ```
-
-## Countries farming seaweed
 
 We also want to map the countries that are currently farming seafood. We can use the FAO data to tell us who has farmed more than 0 tons of **marine plants** in the past 5 years (2012-2016). There are some country name differences between the FAO dataset and the worldmap we are going to use so we fix those here as well.
 
@@ -340,9 +344,10 @@ In order to add lines identifying areas of the world where native seaweeds grow 
 #write_sf(sw_lines, "../../Data/seaweed_range_lines", driver = "ESRI Shapefile")
 
 sw_lines <- read_sf("../../Data/seaweed_range_lines.shp")
+sw_lines <- st_crop(sw_lines, c(xmin = -180, ymin = -90, xmax = 180, ymax = 90)) #sw_lines xmax is 192 so it caused a weird line across the map. cropping here.
 ```
 
-#Area polygons
+## Area polygons
 
 We need to include three different polygons that show the area that needs to be dedicated to farming seaweed to offset CO2 in each scenario.
 
@@ -390,7 +395,7 @@ st_area(x3)
 x3 <- x3 %>% as('Spatial')
 ```
 
-## Final Map
+# Final Map
 
 Create the final map including all layers!
 
@@ -402,10 +407,9 @@ b <- c("#08306B",  "#4292C6", "#6BAED6", "#9ECAE1", "#C6DBEF", "#DEEBF7", "#F7FB
 land_cols <- c("beige", "darkolivegreen4")
 ```
 
-```{r}
+```{r,eval = F}
 #final map
-big_map <- tm_shape(n_to_p_eez) +
-  tm_raster(palette = "white", legend.show = F) + #i've only added this layer as white because it keeps the sw_lines from drawing a line across the map! Seriously remove these first two lines and its the same map but with a line across the whole thing
+big_map <- 
   tm_shape(n_to_p_suit) +
   tm_raster(palette = b, style = "cont", title = "N:P") +
   tm_shape(aq_map) +
@@ -427,11 +431,11 @@ big_map <- tm_shape(n_to_p_eez) +
   tm_add_legend(type = "symbol", shape = 22, labels = "California agriculture", col = "gray90", size = 0.35, border.col = "gray30", border.lwd = 0.7) +
   tm_add_legend(type = "fill", labels = "Global agriculture", col = "gray60", size = .5, border.col = "gray30") +
   tm_layout(legend.title.size = 0.8, legend.title.fontface = "bold")
-```
 
-```{r}
 ##save
-tmap_save(big_map, filename = "../../Figs/map.png", width = 12, height = 5)
-tmap_save(big_map, filename = "../../Figs/map.pdf", width = 12, height = 5)
+png(filename = "~/github/seaweed/Figs/seaweed_map.png", width = 10, height = 4, units = "in", res = 300)
+big_map
+dev.off()
 ```
 
+![](../../Figs/seaweed_map.png)
