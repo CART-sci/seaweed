@@ -351,45 +351,45 @@ sw_lines <- st_crop(sw_lines, c(xmin = -180, ymin = -90, xmax = 180, ymax = 90))
 
 We need to include three different polygons that show the area that needs to be dedicated to farming seaweed to offset CO2 in each scenario.
 
-1. sequester GFG from global fish & crustacean aquaculture (371 km2)
-2. sequester GHG from all CA agricultural emissions (25,943.14548 km2) 
-3. sequester GHG from global livestock agriculture (6,113,276 km2) 
+1. sequester GFG from global fish & crustacean aquaculture (273 km2) #median
+2. sequester GHG from all CA agricultural emissions (31,000 km2) 
+3. sequester GHG from global livestock agriculture in 2100 (7,300,000 km2) 
 
 I manually created these polygons by playing with the locations of them and checking the area with `sf::st_area()`.
 ```{r poly_1}
-#scenario 1 - 371 km2. Create matrix of lat/long locations and then check area of polygon
+#scenario 1 - 278 km2. Create matrix of lat/long locations and then check area of polygon
 x1 <- cbind(c(-134, -133.7, -133.7, -134, -134),
-           c(-46.455, -46.455, -46.6, -46.6, -46.455))
+           c(-46.491, -46.491, -46.6, -46.6, -46.491))
 
 x1 <- st_sf(st_sfc(st_polygon(list(x1))))
 st_crs(x1) <- st_crs(n_to_p_eez) #assign CRS to be the same as n_to_p_eez
-st_area(x1) #371000084 [m^2]
+st_area(x1) #278798496 [m^2]
 
 x1 <- x1 %>% as('Spatial')
 ```
 
 ```{r poly_2}
-#scenario 2 - 25943.14548
-x2 <- cbind(c(-137, -131, -131, -137, -137),
-           c(-49.08, -49.08, -44, -44, -49.08))
+#scenario 2 - 31,017.061251 km2
+x2 <- cbind(c(-135.2, -133, -133, -135.2, -135.2),
+           c(-47.3, -47.3, -45.65, -45.65, -47.3))
 
 x2 <- st_sf(st_sfc(st_polygon(list(x2))))
 st_crs(x2) <- st_crs(n_to_p_eez) #assign CRS to grid
-st_area(x2) #259672435847 [m^2]
+st_area(x2) #30985601532 [m^2]
 
 x2 <- x2 %>% as('Spatial')
 ```
 
-Quick stat - the EEZ off the US west coast (CA -> WA) is 825,585.4 km2. So the area required for scenario 2 is just `r (25943.14548/825585.4)*100`%
+Quick stat - the EEZ off the US west coast (CA -> WA) is 825,585.4 km2. So the area required for scenario 2 is just `r (31000/825585.4)*100`%
 
 ```{r poly_3}
 #scenario 3 - 6113276
-x3 <- cbind(c(-150, -118, -118, -150, -150),
-           c(-58, -58, -35.1, -35.1, -58))
+x3 <- cbind(c(-152, -116, -116, -152, -152),
+           c(-60, -60, -35.1, -35.1, -60))
 
 x3 <- st_sf(st_sfc(st_polygon(list(x3))))
 st_crs(x3) <- st_crs(n_to_p_eez) #assign CRS to grid
-st_area(x3)
+st_area(x3) #7.292245e+12 [m^2]
 
 #close enough!
 x3 <- x3 %>% as('Spatial')
@@ -421,14 +421,14 @@ big_map <-
   tm_shape(x3) +
   tm_polygons(col = "gray60") +
   tm_shape(x2) + 
-  tm_polygons(col = "gray90") +
-  tm_shape(x1) +
   tm_polygons(col = "black") +
+  tm_shape(x1) +
+  tm_polygons(col = "gray30") +
   tm_legend(outside = TRUE) +
   tm_add_legend(type = "fill", labels = "Countries farming seaweed", col = "darkolivegreen4", alpha = 0.7, border.col = "darkgray") +
   tm_add_legend(type = "line", labels = "Native range for wild seaweeds", col = "darkred", lwd = 2) +
   tm_add_legend(type = "symbol", shape = 15, labels = "Finfish & crustacean aquaculture", col = "black", size = 0.1, title = "CO2eq offset scenarios") +
-  tm_add_legend(type = "symbol", shape = 22, labels = "California agriculture", col = "gray90", size = 0.35, border.col = "gray30", border.lwd = 0.7) +
+  tm_add_legend(type = "symbol", shape = 22, labels = "California agriculture", col = "black", size = 0.35, border.col = "gray30", border.lwd = 0.7) +
   tm_add_legend(type = "fill", labels = "Global agriculture", col = "gray60", size = .5, border.col = "gray30") +
   tm_layout(legend.title.size = 0.8, legend.title.fontface = "bold")
 
