@@ -358,12 +358,12 @@ We need to include three different polygons that show the area that needs to be 
 I manually created these polygons by playing with the locations of them and checking the area with `sf::st_area()`.
 ```{r poly_1}
 #scenario 1 - 278 km2. Create matrix of lat/long locations and then check area of polygon
-x1 <- cbind(c(-134, -133.7, -133.7, -134, -134),
-           c(-46.491, -46.491, -46.6, -46.6, -46.491))
+x1 <- cbind(c(-134, -133.77, -133.77, -134, -134),
+           c(-29.487, -29.487, -29.6, -29.6, -29.487))
 
 x1 <- st_sf(st_sfc(st_polygon(list(x1))))
 st_crs(x1) <- st_crs(n_to_p_eez) #assign CRS to be the same as n_to_p_eez
-st_area(x1) #278798496 [m^2]
+st_area(x1) #279226497 [m^2]
 
 x1 <- x1 %>% as('Spatial')
 ```
@@ -371,7 +371,8 @@ x1 <- x1 %>% as('Spatial')
 ```{r poly_2}
 #scenario 2 - 31,017.061251 km2
 x2 <- cbind(c(-135.2, -133, -133, -135.2, -135.2),
-           c(-47.3, -47.3, -45.65, -45.65, -47.3))
+           c(-33, -33, -31.65, -31.65, -33))
+           # c(-47.3, -47.3, -45.65, -45.65, -47.3))
 
 x2 <- st_sf(st_sfc(st_polygon(list(x2))))
 st_crs(x2) <- st_crs(n_to_p_eez) #assign CRS to grid
@@ -421,9 +422,9 @@ big_map <-
   tm_shape(x3) +
   tm_polygons(col = "gray60") +
   tm_shape(x2) + 
-  tm_polygons(col = "black") +
+  tm_polygons(col = "black", border.col = "black") +
   tm_shape(x1) +
-  tm_polygons(col = "gray30") +
+  tm_polygons(col = "black", border.col = "black") +
   tm_legend(outside = TRUE) +
   tm_add_legend(type = "fill", labels = "Countries farming seaweed", col = "darkolivegreen4", alpha = 0.7, border.col = "darkgray") +
   tm_add_legend(type = "line", labels = "Native range for wild seaweeds", col = "darkred", lwd = 2) +
