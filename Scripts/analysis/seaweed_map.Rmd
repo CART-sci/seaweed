@@ -358,7 +358,7 @@ We need to include three different polygons that show the area that needs to be 
 I manually created these polygons by playing with the locations of them and checking the area with `sf::st_area()`.
 ```{r poly_1}
 #scenario 1 - 278 km2. Create matrix of lat/long locations and then check area of polygon
-x1 <- cbind(c(-134, -133.77, -133.77, -134, -134),
+x1 <- cbind(c(-152, -151.77, -151.77, -152, -152),
            c(-29.487, -29.487, -29.6, -29.6, -29.487))
 
 x1 <- st_sf(st_sfc(st_polygon(list(x1))))
@@ -369,14 +369,15 @@ x1 <- x1 %>% as('Spatial')
 ```
 
 ```{r poly_2}
-#scenario 2 - 31,017.061251 km2
-x2 <- cbind(c(-135.2, -133, -133, -135.2, -135.2),
+#scenario 2 - 31,000 km2
+x2 <- cbind(c(-152, -149.8, -149.8, -152, -152),
            c(-33, -33, -31.65, -31.65, -33))
-           # c(-47.3, -47.3, -45.65, -45.65, -47.3))
+
+#c(-135.2, -133, -133, -135.2, -135.2),
 
 x2 <- st_sf(st_sfc(st_polygon(list(x2))))
 st_crs(x2) <- st_crs(n_to_p_eez) #assign CRS to grid
-st_area(x2) #30985601532 [m^2]
+st_area(x2) #31010946216 [m^2]
 
 x2 <- x2 %>% as('Spatial')
 ```
@@ -428,7 +429,7 @@ big_map <-
   tm_legend(outside = TRUE) +
   tm_add_legend(type = "fill", labels = "Countries farming seaweed", col = "darkolivegreen4", alpha = 0.7, border.col = "darkgray") +
   tm_add_legend(type = "line", labels = "Native range for wild seaweeds", col = "darkred", lwd = 2) +
-  tm_add_legend(type = "symbol", shape = 15, labels = "Finfish & crustacean aquaculture", col = "black", size = 0.1, title = "CO2eq offset scenarios") +
+  tm_add_legend(type = "symbol", shape = 15, labels = "Finfish & crustacean aquaculture", col = "black", size = 0.1, title = "CO\U2082 eq offset scenarios") +
   tm_add_legend(type = "symbol", shape = 22, labels = "California agriculture", col = "black", size = 0.35, border.col = "gray30", border.lwd = 0.7) +
   tm_add_legend(type = "fill", labels = "Global agriculture", col = "gray60", size = .5, border.col = "gray30") +
   tm_layout(legend.title.size = 0.8, legend.title.fontface = "bold")
