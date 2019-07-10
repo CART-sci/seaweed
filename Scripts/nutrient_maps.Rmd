@@ -1,0 +1,308 @@
+---
+title: "Nutrient maps"
+author: "*Compiled on `r date()` by Jamie Afflerbach"
+output: 
+  html_document:
+    code_folding: hide
+    toc: true
+    toc_depth: 3
+    toc_float: yes
+    number_sections: false
+    theme: cerulean
+    highlight: haddock
+  pdf_document:
+    toc: true
+---
+
+# Summary
+
+This script creates Supplemental figures 1 and 2 which show seasonal patterns in nitrogen and phosphate.
+
+# Setup
+
+```{r setup, message = F, warning = F}
+knitr::opts_chunk$set(echo = TRUE, message = F, warning = F)
+
+library(tidyverse)
+library(sf)
+library(raster)
+library(tmap)
+library(RColorBrewer)
+
+
+#point to aquaculture folder on aurora
+dir_a <- c('Windows' = '//aurora.nceas.ucsb.edu/aquaculture',
+           'Darwin'  = '/Volumes/aquaculture',   
+           'Linux'   = '/home/shares/aquaculture')[[ Sys.info()[['sysname']] ]]
+
+
+#set rainbow color scheme
+cols      = colorRampPalette(rev(brewer.pal(9, 'Spectral')))(255) # rainbow color scheme
+
+#grab the worldmap from rnaturalearth
+worldmap <- rnaturalearth::ne_download(scale = 110,
+                                       type = "countries",
+                                       category = "cultural",
+                                       destdir = tempdir(),
+                                       load = TRUE,
+                                       returnclass = "sf")
+```
+
+# Data wrangling
+
+## Phosphate data
+
+Load the .csv of Phosphate downloaded to aurora. This data was downloaded from the [World Ocean Atlas 2013](https://www.nodc.noaa.gov/cgi-bin/OC5/woa13/woa13oxnu.pl). We need to skip the first row since it just contains a string.
+
+```{r}
+l <- list.files(file.path(dir_a, "input/WOA"), full.names = T)
+
+seasonal <- l[str_detect(l, "an01.csv$")]
+
+phos <- seasonal[str_detect(seasonal, "all_p[1][3-6]")]
+
+f <- function(file){
+  
+df <- read_csv(file, skip = 1)%>%
+  rename(lat = `#COMMA SEPARATED LATITUDE`, 
+         long = `LONGITUDE`) %>%
+  mutate(season = substr(file, 47, 48))
+return(df)
+}
+
+phosphate <- map_df(phos,f) %>%
+  mutate(season = case_when(
+    season == 13 ~ "Winter",
+    season == 14 ~ "Spring",
+    season == 15 ~ "Summer",
+    season == 16 ~ "Fall"
+  ))
+```
+
+All columns 3 and on contain depth measurements. I'm limiting our range to just the top 10 m.
+
+```{r}
+phos_surf <- phosphate %>%
+  dplyr::select(1:7,40) %>%
+  gather(key = depth, value = phosphate, -lat, -long, -season) %>%
+  mutate(depth_m = ifelse(depth == "AND VALUES AT DEPTHS (M):0", 0, depth)) %>%
+  dplyr::select(-depth)
+```
+
+Rasterizing phosphate values at 0 m depth (surface)
+
+```{r}
+x <- raster(xmn=-180, xmx=180, ymn=-90, ymx=90, res=1, crs="+proj=longlat +datum=WGS84")
+
+#get each depth x season raster
+
+s <- stack()
+for(i in seq(0,10,b=5)){
+  
+  for(j in c("Winter", "Spring", "Summer", "Fall")){
+    
+    d <- phos_surf %>% filter(depth_m == i,
+                              season == j)
+    
+    p <- rasterize(d[, c('long', 'lat')], x, d[, 'phosphate'], fun=mean)
+    names(p) <- paste0("depth_",i,"_",j)
+    
+    s <- stack(s, p)
+  }
+  
+}
+```
+
+Taking the average for each season
+
+```{r, eval = F}
+
+for(i in c("Winter", "Spring", "Summer", "Fall")){
+
+  m <- raster::subset(s, grep(i, names(s), value = T)) %>%
+    mean(na.rm=T)
+  
+  writeRaster(m, filename = paste0("~/github/seaweed/Data/avg_phosphate_", i, ".tif"), overwrite = T)
+}
+
+```
+
+
+## Nitrogen data
+
+Load the .csv of nitrate downloaded to aurora. This data was downloaded from the [World Ocean Atlas 2013](https://www.nodc.noaa.gov/cgi-bin/OC5/woa13/woa13oxnu.pl). We need to skip the first row since it just contains a string.
+
+```{r}
+
+l <- list.files(file.path(dir_a, "input/WOA"), full.names = T)
+
+seasonal <- l[str_detect(l, "an01.csv$")]
+
+nitr <- seasonal[str_detect(seasonal, "all_n[1][3-6]")]
+
+f <- function(file){
+  
+df <- read_csv(file, skip = 1)%>%
+  rename(lat = `#COMMA SEPARATED LATITUDE`, 
+         long = `LONGITUDE`) %>%
+  mutate(season = substr(file, 47, 48))
+return(df)
+}
+
+nit <- map_df(nitr,f) %>%
+  mutate(season = case_when(
+    season == 13 ~ "Winter",
+    season == 14 ~ "Spring",
+    season == 15 ~ "Summer",
+    season == 16 ~ "Fall"
+  ))
+```
+
+All columns 3 and on contain depth measurements. I'm limiting our range to just the top 10 m.
+
+```{r}
+nit_surf <- nit %>%
+  dplyr::select(1:7,40) %>%
+  gather(key = depth, value = nitrate, -lat, -long, -season) %>%
+  mutate(depth_m = ifelse(depth == "AND VALUES AT DEPTHS (M):0", 0, depth)) %>%
+  dplyr::select(-depth)
+```
+
+
+
+Let's rasterize phosphate values at 0 m depth (surface)
+
+```{r}
+x <- raster(xmn=-180, xmx=180, ymn=-90, ymx=90, res=1, crs="+proj=longlat +datum=WGS84")
+
+#get each depth x season raster
+
+s <- stack()
+for(i in seq(0,10,b=5)){
+  
+  for(j in c("Winter", "Spring", "Summer", "Fall")){
+    
+    d <- nit_surf %>% filter(depth_m == i,
+                              season  == j)
+    
+    n <- rasterize(d[, c('long', 'lat')], x, d[, 'nitrate'], fun=mean)
+    names(n) <- paste0("depth_",i,"_",j)
+    
+    s <- stack(s, n)
+  }
+}
+```
+
+Average for each season
+
+```{r, eval = F}
+
+for(i in c("Winter", "Spring", "Summer", "Fall")){
+
+  m <- raster::subset(s, grep(i, names(s), value = T)) %>%
+    mean(na.rm=T)
+  
+  writeRaster(m, filename = paste0("~/github/seaweed/Data/avg_nitrate_", i, ".tif"), overwrite = T)
+}
+
+```
+
+Get standard deviation
+
+```{r}
+n_sd <- stack(list.files("~/github/seaweed/Data", pattern = "avg_nitrate", full.names = T)) %>%
+  calc(fun = sd)
+
+p_sd <- stack(list.files("~/github/seaweed/Data", pattern = "avg_phosphate", full.names = T)) %>%
+  calc(fun = sd)
+```
+
+
+# Make maps
+
+### Phosphate
+
+```{r, fig.width = 10, fig.height = 6}
+p <- list.files("~/github/seaweed/Data", pattern = "avg_phosphate", full.names = T) %>%
+  stack()
+
+phosphate_panel <- tm_shape(p) +
+  tm_raster(style = "cont", 
+            title = "Phosphate (µmol/L)", 
+            palette = cols) +
+  tm_shape(worldmap)  +
+  tm_polygons(col = "gray90") +
+  tm_legend(outside = TRUE) +
+  tm_layout(legend.title.size = 1, 
+            legend.title.fontface = "bold", 
+            panel.labels = c("Fall", "Spring", "Summer", "Winter"), 
+            panel.label.bg.color = "white",
+            legend.text.size = 0.8)
+
+phosphate_panel
+
+tmap_save(phosphate_panel, filename = "~/github/seaweed/Figs/phosphate_seasonal_panel.pdf")
+```
+
+### Nitrate
+```{r, fig.width = 10, fig.height = 6}
+n <- list.files("~/github/seaweed/Data", pattern = "avg_nitrate", full.names = T) %>%
+  stack()
+
+nitrate_panel <- tm_shape(n) +
+  tm_raster(style = "cont", 
+            title = "Nitrate (µmol/L)", 
+            palette = cols,
+            breaks = c(0, 10, 20, 30, 40)) +
+  tm_shape(worldmap)  +
+  tm_polygons(col = "gray90") +
+  tm_legend(outside = TRUE) +
+  tm_layout(legend.title.size = 1, 
+            legend.title.fontface = "bold", 
+            panel.labels = c("Fall", "Spring", "Summer", "Winter"), 
+            panel.label.bg.color = "white",
+            legend.text.size = 0.8)
+
+tmap_save(nitrate_panel, filename = "~/github/seaweed/Figs/nitrate_seasonal_panel.pdf")
+```
+
+standard deviation maps
+```{r}
+p_sd_map <- tm_shape(p_sd) +
+  tm_raster(style = "cont", 
+            title = "Phosphate (µmol/L)", 
+            palette = cols) +
+  tm_shape(worldmap)  +
+  tm_polygons(col = "gray90") +
+  tm_legend(outside = TRUE,
+            main.title = "Standard deviation",
+            main.title.position = c("left"),
+            main.title.size = 1) +
+  tm_layout(legend.title.size = 1, 
+            legend.title.fontface = "bold",
+            legend.text.size = 0.8,
+            title.snap.to.legend = F)
+
+p_sd_map
+tmap_save(p_sd_map, filename = "~/github/seaweed/Figs/phosphate_sd.pdf")
+```
+
+```{r}
+n_sd_map <- tm_shape(n_sd) +
+  tm_raster(style = "cont", 
+            title = "Nitrate (µmol/L)", 
+            palette = cols,
+            breaks = seq(0, 17, length.out = 7)) +
+  tm_shape(worldmap)  +
+  tm_polygons(col = "gray90") +
+  tm_legend(outside = TRUE,
+            main.title = "Standard deviation",
+            main.title.position = c("left"),
+            main.title.size = 1) +
+  tm_layout(legend.title.size = 1, 
+            legend.title.fontface = "bold",
+            legend.text.size = 0.8,
+            title.snap.to.legend = F)
+n_sd_map
+tmap_save(n_sd_map, filename = "~/github/seaweed/Figs/nitrate_sd.pdf")
+```

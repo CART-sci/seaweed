@@ -68,7 +68,7 @@ Load OA raster, interpolate to gapfill missing cells especially at the Arctic, a
 ```{r}
 #load OA raster from 2016
 oa    <- raster(file.path(dir_a, "ARF/oa/global_arag_avg_moll_2016.tif")) 
-ocean <- raster(file.path(dir_a, "ARF/oa/ocean.tif")) %>% #ocean raster at 1km touse for mask
+ocean <- raster(file.path(dir_a, "ARF/oa/ocean.tif")) %>% #ocean raster at 1km to use as a mask on the OA data
            resample(oa)
   
 #interpolate across NA
@@ -120,7 +120,7 @@ hyp_eut_map <-
   tm_layout(legend.title.size = 0.8, legend.title.fontface = "bold", frame = F) 
 
 
-tmap_save(hyp_eut_map, filename = "../../Figs/hyp_eut_map.pdf", width = 6, height = 2.5, units = "in")
+tmap_save(hyp_eut_map, filename = "../Figs/hyp_eut_map.pdf", width = 6, height = 2.5, units = "in")
 
 hyp_eut_map
 ```
@@ -142,13 +142,12 @@ sites_moll <- sites_sf %>%
   st_transform(crs = "+proj=moll +lon_0=0 +x_0=0 +y_0=0 +datum=WGS84 +units=m +no_defs")
 
 sites_int <- st_intersection(eezs, sites_moll)
+st_set_geometry(sites_int, NULL)
 
 #get the columns we want (country, classification, site info)
 si <- sites_int %>%
-  dplyr::select(rgn_name, System, Country, Classification) %>%
-  distinct()
-#remove geometry
-st_geometry(si) <- NULL
+  dplyr::select(rgn_name, System, Country, Classification)
+
 
 #dataframe that lists each country, and how many sites are eutrophic or hypoxic within each, filtered for feasible countries
 ctrys_w_eut_hyp <- si %>%
@@ -177,10 +176,11 @@ ctry_ids <- unique(oa_ctry$ID)
 #create a column in eezs that is equivalent to the rownames (which are the IDs returned from extract)
 eezs$IDs <- row.names(eezs)
 
+st_geometry(eezs) <- NULL
+
 #see what countries those are from eezs
 a <- eezs %>%
   filter(IDs %in% ctry_ids)
-st_geometry(a) <- NULL
 
 #get final list of countries w/ acidic conditions
 final_oa_countries <- a %>%
@@ -207,8 +207,7 @@ b <- ctrys_w_eut_hyp %>%
 write.csv(b, file = "~/github/seaweed/Data/countries_w_hyp_eut_oa_conditions.csv")
 ```
 
-
-Time to run some stats.
+## Additional statistics
 
 How many countries have acidic conditions?
 
@@ -217,7 +216,6 @@ b %>%
   filter(OA == 1) %>%
   nrow()
 ```
-And # of suitable countries with eutrophic, hypoxic, OR acidic conditions, please! 
 
 These countries have all three conditions
 
